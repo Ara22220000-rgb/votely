@@ -215,7 +215,9 @@ function collectQuizPayload(form) {
 }
 
 async function initBrowsePage(root) {
-    const type = new URLSearchParams(window.location.search).get('type') === 'quiz' ? 'quiz' : 'poll';
+    const params = new URLSearchParams(window.location.search);
+    const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
+    const query = params.get('q') || '';
     const list = root.querySelector('[data-list]');
     const titleEl = root.querySelector('[data-browse-title]');
     const badgeEl = root.querySelector('[data-type-badge]');
@@ -237,15 +239,41 @@ async function initBrowsePage(root) {
     // Обновляем заголовок и бейдж
     updateBrowseTitle(titleEl, badgeEl, type);
     
+    // Заполняем поле поиска
+    const searchInput = document.querySelector('.search-form input[name="q"]');
+    if (searchInput) {
+        searchInput.value = query;
+    }
+    
+    // Если есть поиск, показываем это в бейдже
+    if (query) {
+        updateSearchBadge(badgeEl, query, type);
+    }
+    
     try {
         // Исправляем множественное число: quiz -> quizzes, poll -> polls
         const plural = type === 'quiz' ? 'quizzes' : 'polls';
-        const data = await apiJSON('/api/v1/' + plural);
-        renderCards(list, data.items || [], type);
+        const url = '/api/v1/' + plural + (query ? '?q=' + encodeURIComponent(query) : '');
+        const data = await apiJSON(url);
+        renderCards(list, data.items || [], type, query);
     } catch (e) {
         console.error('Ошибка загрузки:', e);
         list.textContent = e.message;
     }
+}
+    
+function updateSearchBadge(badgeEl, query, type) {
+    if (!badgeEl) return;
+    const isQuiz = type === 'quiz';
+    const icon = isQuiz ? '🧠' : '📊';
+    badgeEl.innerHTML = `<span class="badge-icon">${icon}</span><span class="badge-text">Поиск: "${escapeHtml(query)}"</span>`;
+    badgeEl.className = 'browse-type-badge is-search';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 function updateBrowseTitle(titleEl, badgeEl, type) {
@@ -262,9 +290,26 @@ function updateBrowseTitle(titleEl, badgeEl, type) {
         badgeEl.innerHTML = `<span class="badge-icon">${icon}</span><span class="badge-text">${badgeText}</span>`;
         badgeEl.className = 'browse-type-badge ' + (isQuiz ? 'is-quiz' : 'is-poll');
     }
+    
+    // Обновляем форму поиска
+    updateSearchForm(type);
 }
 
-function renderCards(list, items, type) {
+function updateSearchForm(type) {
+    const searchForm = document.querySelector('.search-form');
+    const typeInput = searchForm?.querySelector('input[name="type"]');
+    const searchInput = searchForm?.querySelector('input[name="q"]');
+    
+    if (typeInput) {
+        typeInput.value = type;
+    }
+    
+    if (searchInput) {
+        searchInput.placeholder = type === 'quiz' ? 'Поиск викторин...' : 'Поиск опросов...';
+    }
+}
+
+function renderCards(list, items, type, query = '') {
     if (!list) return;
     list.innerHTML = '';
     if (!items || !Array.isArray(items)) {
@@ -275,6 +320,16 @@ function renderCards(list, items, type) {
     const isQuiz = type === 'quiz';
     const icon = isQuiz ? '🧠' : '📊';
     const typeLabel = isQuiz ? 'Викторина' : 'Опрос';
+    
+    if (items.length === 0) {
+        list.innerHTML = `
+            <div class="viewer-empty">
+                <div class="viewer-empty-icon">🔍</div>
+                <p>Ничего не найдено по запросу "${escapeHtml(query)}"</p>
+            </div>
+        `;
+        return;
+    }
     
     items.forEach(item => {
         const a = document.createElement('a');

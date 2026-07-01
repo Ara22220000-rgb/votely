@@ -947,6 +947,12 @@ a {
     color: #d4a5ff;
 }
 
+.browse-type-badge.is-search {
+    background: linear-gradient(135deg, rgba(92, 150, 175, 0.15) 0%, rgba(92, 150, 175, 0.08) 100%);
+    border: 2px solid rgba(92, 150, 175, 0.4);
+    color: #7ec8ff;
+}
+
 .badge-icon {
     font-size: 20px;
 }
@@ -1425,6 +1431,7 @@ a {
     color: #8a8d91;
     font-size: 18px;
     font-weight: 700;
+    grid-column: 1 / -1;
 }
 
 .viewer-empty-icon {

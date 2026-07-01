@@ -27,8 +27,9 @@
                     </div>
                 </div>
                 <div class="searchdiv">
-                    <form class="search-form" action="browse.php" role="search">
-                        <input name="q" class="search" type="text" placeholder="Поиск" aria-label="Найти опрос">
+                    <form class="search-form" action="browse.php" role="search" method="GET">
+                        <input type="hidden" name="type" value="poll">
+                        <input name="q" class="search" type="text" placeholder="Поиск" aria-label="Найти опрос" value="">
                         <button class="search-button" type="submit" aria-label="Найти">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 
