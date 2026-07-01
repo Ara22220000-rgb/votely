@@ -263,70 +263,164 @@ function renderDetail(container, data, type, id) {
 }
     
 function renderPollView(container, data, id) {
-    const form = document.createElement('form');
-    form.className = 'vote-form';
-    const list = document.createElement('div');
-    list.className = 'answer-list';
-    
     const options = data.options || [];
     
     if (options.length === 0) {
-        list.innerHTML = '<p class="form-status is-error">Варианты ответов не найдены</p>';
-        const btn = document.createElement('button');
-        btn.className = 'primary-button';
-        btn.textContent = 'Голосовать';
-        btn.disabled = true;
-        form.append(list, btn);
-        container.innerHTML = '';
-        container.appendChild(form);
+        container.innerHTML = '<div class="viewer-empty"><div class="viewer-empty-icon">📊</div><p>Варианты ответов не найдены</p></div>';
         return;
     }
     
-    options.forEach(o => {
-        const lbl = document.createElement('label');
-        lbl.className = 'vote-option';
-        lbl.innerHTML = '<input type="radio" name="opt" value="' + o.id + '"><span>' + o.text + '</span><span class="vote-count">' + (o.votes || 0) + '</span>';
-        list.appendChild(lbl);
-    });
+    // Проверяем, есть ли уже голоса (значит показываем результаты)
+    const hasVotes = options.some(o => (o.votes || 0) > 0);
     
-    const btn = document.createElement('button');
-    btn.className = 'primary-button';
-    btn.textContent = 'Голосовать';
-    
-    form.append(list, btn);
-    form.onsubmit = async (e) => {
-        e.preventDefault();
-        const sel = form.querySelector('input:checked');
-        if (!sel) return;
-        const res = await apiJSON('/api/v1/polls/' + id + '/votes', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ option_id: sel.value })
+    if (hasVotes) {
+        // Показываем результаты
+        const totalVotes = options.reduce((sum, o) => sum + (o.votes || 0), 0);
+        const resultsDiv = document.createElement('div');
+        resultsDiv.className = 'poll-results';
+        
+        options.forEach(o => {
+            const votes = o.votes || 0;
+            const percent = totalVotes > 0 ? Math.round(votes / totalVotes * 100) : 0;
+            
+            const optionDiv = document.createElement('div');
+            optionDiv.className = 'result-option';
+            optionDiv.innerHTML = `
+                <div class="result-bar" style="width: ${percent}%"></div>
+                <div class="result-content">
+                    <span>${o.text}</span>
+                    <span class="result-votes">${votes} гол.</span>
+                    <span class="result-percent">${percent}%</span>
+                </div>
+            `;
+            resultsDiv.appendChild(optionDiv);
         });
-        renderPollView(container, res, id);
-    };
-    container.innerHTML = '';
-    container.appendChild(form);
+        
+        container.innerHTML = '';
+        container.appendChild(resultsDiv);
+    } else {
+        // Показываем форму для голосования
+        const form = document.createElement('form');
+        form.className = 'poll-view';
+        
+        const optionsDiv = document.createElement('div');
+        optionsDiv.className = 'poll-options';
+        
+        options.forEach(o => {
+            const lbl = document.createElement('label');
+            lbl.className = 'poll-option';
+            lbl.innerHTML = `
+                <input type="radio" name="opt" value="${o.id}">
+                <span>${o.text}</span>
+            `;
+            optionsDiv.appendChild(lbl);
+        });
+        
+        const btn = document.createElement('button');
+        btn.className = 'poll-vote-btn';
+        btn.type = 'submit';
+        btn.textContent = 'Голосовать';
+        
+        form.append(optionsDiv, btn);
+        
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const sel = form.querySelector('input:checked');
+            if (!sel) {
+                showToast('Выберите вариант ответа', 'error');
+                return;
+            }
+            btn.disabled = true;
+            btn.textContent = 'Отправка...';
+            try {
+                const res = await apiJSON('/api/v1/polls/' + id + '/votes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ option_id: sel.value })
+                });
+                renderPollView(container, res, id);
+            } catch (err) {
+                showToast(err.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Голосовать';
+            }
+        };
+        
+        container.innerHTML = '';
+        container.appendChild(form);
+    }
 }
 
 function renderQuizView(container, data) {
-    container.innerHTML = '<p>' + (data.question || '') + '</p><div class="answer-list"></div><button class="primary-button">Проверить</button><p class="status"></p>';
-    const list = container.querySelector('.answer-list');
+    const quizDiv = document.createElement('div');
+    quizDiv.className = 'quiz-view';
+    
+    // Вопрос
+    const questionDiv = document.createElement('div');
+    questionDiv.className = 'quiz-question-text';
+    questionDiv.textContent = data.question || 'Вопрос викторины';
+    
+    // Ответы
+    const answersDiv = document.createElement('div');
+    answersDiv.className = 'quiz-answers';
     const answers = data.answers || [];
+    
     answers.forEach((a, i) => {
         const lbl = document.createElement('label');
-        lbl.className = 'vote-option';
+        lbl.className = 'quiz-answer-option';
         lbl.dataset.correct = a.is_correct;
-        lbl.innerHTML = '<input type="radio" name="ans" value="' + i + '"><span>' + a.text + '</span>';
-        list.appendChild(lbl);
+        lbl.innerHTML = `
+            <input type="radio" name="ans" value="${i}">
+            <span>${a.text}</span>
+        `;
+        answersDiv.appendChild(lbl);
     });
-    container.querySelector('button').onclick = () => {
-        const sel = container.querySelector('input:checked');
-        if (!sel) return;
-        const correct = sel.closest('label').dataset.correct === 'true';
-        container.querySelector('.status').textContent = correct ? 'Верно!' : 'Неверно';
-        container.querySelectorAll('label').forEach(l => {
-            if (l.dataset.correct === 'true') l.style.color = 'green';
+    
+    // Кнопка
+    const btn = document.createElement('button');
+    btn.className = 'primary-button';
+    btn.textContent = 'Проверить';
+    btn.style.marginTop = '12px';
+    
+    // Feedback
+    const feedback = document.createElement('div');
+    feedback.className = 'quiz-feedback';
+    feedback.style.display = 'none';
+    
+    quizDiv.append(questionDiv, answersDiv, btn, feedback);
+    
+    btn.onclick = () => {
+        const sel = quizDiv.querySelector('input:checked');
+        if (!sel) {
+            showToast('Выберите вариант ответа', 'error');
+            return;
+        }
+        
+        const selectedLabel = sel.closest('.quiz-answer-option');
+        const isCorrect = selectedLabel.dataset.correct === 'true';
+        
+        // Показываем результат
+        feedback.style.display = 'block';
+        feedback.className = 'quiz-feedback ' + (isCorrect ? 'quiz-feedback--correct' : 'quiz-feedback--wrong');
+        feedback.textContent = isCorrect ? '✅ Верно!' : '❌ Неверно';
+        
+        // Подсвечиваем варианты
+        quizDiv.querySelectorAll('.quiz-answer-option').forEach(l => {
+            const input = l.querySelector('input');
+            input.disabled = true;
+            
+            if (l.dataset.correct === 'true') {
+                l.classList.add('is-correct');
+            }
+            if (l === selectedLabel && !isCorrect) {
+                l.classList.add('is-wrong');
+            }
         });
+        
+        btn.disabled = true;
+        btn.textContent = 'Готово';
     };
+    
+    container.innerHTML = '';
+    container.appendChild(quizDiv);
 }
