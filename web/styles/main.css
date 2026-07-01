@@ -63,7 +63,6 @@ a {
     width: 100%;
     display: grid;
     grid-template-columns: 10% 25% 8% 15% 15%;
-    grid-template-areas: "brand menu search login";
     align-items: center;
     gap: 7%;
     gap: 7%;
@@ -1309,57 +1308,6 @@ a {
         min-width: unset;
         max-width: 320px;
         margin: 0 auto;
-    }
-}
-
-    .nav {
-        grid-template-areas:
-            "brand"
-            "menu"
-            "search"
-            "login";
-        grid-template-columns: 1fr;
-        gap: 18px;
-        justify-items: center;
-    }
-    .searchdiv {
-        width: 100%;
-        display: flex;
-        justify-content: center;
-    }
-    .brand,
-    .nav__right {
-        min-width: 0;
-    }
-
-    .nav__middle {
-        width: auto;
-        flex-wrap: nowrap;
-        gap: 16px 28px;
-        transform: none;
-    }
-
-    .nav__right {
-        justify-content: center;
-    }
-
-    .search-form {
-        grid-column: auto;
-        width: min(100%, 340px);
-        min-width: 220px;
-    }
-
-    .hero {
-        min-height: auto;
-    }
-
-    .footer__top {
-        grid-template-columns: 1fr;
-        align-items: start;
-    }
-
-    .footer__contact {
-        align-items: flex-start;
     }
 }
 
