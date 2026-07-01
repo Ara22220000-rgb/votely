@@ -1,0 +1,5 @@
+.git
+postgres_data
+tmp
+*.log
+node_modules

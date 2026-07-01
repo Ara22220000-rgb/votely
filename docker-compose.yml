@@ -1,0 +1,42 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8080:80"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DB=votely
+      - PG_USER=votely
+      - PG_PASSWORD=votely
+      - HASH_SECRET=de5d0883
+      - TELEGRAM_BOT_TOKEN=
+      - TELEGRAM_BOT_USERNAME=jljibot
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: votely
+      POSTGRES_USER: votely
+      POSTGRES_PASSWORD: votely
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U votely -d votely"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
