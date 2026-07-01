@@ -9,7 +9,3 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.php [L]
 
-# Заголовок для JSON ответов
-<IfModule mod_headers.c>
-    Header set Content-Type "application/json; charset=utf-8" env=API_REQUEST
-</IfModule>

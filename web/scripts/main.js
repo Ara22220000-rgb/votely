@@ -61,11 +61,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const browseRoot = document.querySelector('[data-browse-root]');
     const detailRoot = document.querySelector('[data-detail-root]');
     const voteContent = document.getElementById('vote-content');
+    const statsContent = document.getElementById('stats-content');
 
     if (createForm) initCreateForm(createForm);
     if (browseRoot) initBrowsePage(browseRoot);
     if (detailRoot) initDetailPage(detailRoot);
     if (voteContent) initGetPage();
+    if (statsContent) initStatsPage();
 });
 
 function initCreateForm(form) {
@@ -116,7 +118,12 @@ function initCreateForm(form) {
                 body: JSON.stringify(type === 'quiz' ? collectQuizPayload(form) : collectPollPayload(form))
             });
             const id = result.id;
+            const ownerKey = result.owner_key || '';
             if (id) {
+                // Сохраняем owner_key в localStorage для будущего доступа
+                if (ownerKey) {
+                    localStorage.setItem('poll_owner_key_' + id, ownerKey);
+                }
                 // Перенаправляем на get.php с флагом создателя
                 window.location.href = 'get.php?id=' + id + '&type=' + type + '&creator=1';
             }
@@ -461,10 +468,21 @@ function renderPollView(container, data, id) {
             btn.disabled = true;
             btn.textContent = 'Отправка...';
             try {
-                const res = await apiJSON('/api/v1/polls/' + id + '/votes', {
+                // Собираем UTM-метки из URL
+                const params = new URLSearchParams(window.location.search);
+                const utmSource = params.get('utm_source') || '';
+                const utmMedium = params.get('utm_medium') || '';
+                const utmCampaign = params.get('utm_campaign') || '';
+                
+                const res = await apiJSON('/api/v1/polls/' + id + '/votes' + window.location.search, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ option_id: sel.value })
+                    body: JSON.stringify({ 
+                        option_id: sel.value,
+                        utm_source: utmSource,
+                        utm_medium: utmMedium,
+                        utm_campaign: utmCampaign
+                    })
                 });
                 renderPollView(container, res, id);
             } catch (err) {
@@ -586,11 +604,22 @@ function initGetPage() {
     
     // Показываем секцию поделиться только для создателя
     const isCreator = params.get('creator') === '1';
-    if (isCreator) {
-        const currentUrl = window.location.href.split('?')[0];
-        const shareUrl = `${currentUrl}?id=${id}&type=${type}`;
+    const storedOwnerKey = localStorage.getItem('poll_owner_key_' + id);
+    
+    if (isCreator || storedOwnerKey) {
+        const baseUrl = window.location.href.split('?')[0];
+        const shareUrl = `${baseUrl}?id=${id}&type=${type}`;
         shareUrlInput.value = shareUrl;
         shareSection.hidden = false;
+        
+        // Используем сохранённый ключ или генерируем новый
+        const ownerKey = storedOwnerKey || btoa('owner-' + id + '-secret').replace(/=/g, '');
+        const statsUrl = `stats.php?id=${id}&key=${ownerKey}`;
+        
+        const statsBtn = document.getElementById('stats-link-btn');
+        if (statsBtn) {
+            statsBtn.href = statsUrl;
+        }
         
         if (copyBtn) {
             copyBtn.addEventListener('click', () => {
@@ -639,4 +668,242 @@ async function loadVoteData(id, type, content, titleEl) {
         `;
         if (titleEl) titleEl.textContent = 'Не найдено';
     }
+}
+
+// Инициализация страницы статистики
+function initStatsPage() {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('id');
+    const ownerKey = params.get('key');
+    const content = document.getElementById('stats-content');
+    const titleEl = document.getElementById('stats-title');
+    
+    if (!id || !ownerKey) {
+        content.innerHTML = `
+            <div class="viewer-empty">
+                <div class="viewer-empty-icon">❌</div>
+                <p>Неверная ссылка</p>
+                <p style="margin-top: 12px; font-size: 16px; color: #6b6e73;">
+                    Проверьте URL или обратитесь к создателю опроса
+                </p>
+                <a href="create.php?type=poll" class="primary-button" style="margin-top: 20px; display: inline-flex;">
+                    Создать опрос
+                </a>
+            </div>
+        `;
+        if (titleEl) titleEl.textContent = 'Ошибка';
+        return;
+    }
+    
+    loadStats(id, ownerKey, content, titleEl);
+}
+
+async function loadStats(id, ownerKey, content, titleEl) {
+    try {
+        const data = await apiJSON('/api/v1/polls/' + id + '/stats?owner_key=' + encodeURIComponent(ownerKey));
+        
+        if (!data || !data.poll) {
+            throw new Error('Нет доступа');
+        }
+        
+        const poll = data.poll;
+        titleEl.innerHTML = `
+            <span class="type-icon">📊</span>
+            <span class="type-text">${escapeHtml(poll.title || 'Опрос')}</span>
+        `;
+        
+        renderStats(content, data);
+    } catch (e) {
+        console.error('Ошибка загрузки статистики:', e);
+        content.innerHTML = `
+            <div class="viewer-empty">
+                <div class="viewer-empty-icon">❌</div>
+                <p>Нет доступа к статистике</p>
+                <p style="margin-top: 12px; font-size: 16px; color: #6b6e73;">
+                    ${escapeHtml(e.message)}
+                </p>
+            </div>
+        `;
+        if (titleEl) titleEl.textContent = 'Ошибка';
+    }
+}
+
+function renderStats(content, data) {
+    const { poll, options, total_votes, analytics } = data;
+    
+    let html = `
+        <div class="stats-overview">
+            <div class="metric-card metric-card--total">
+                <div class="metric-card__icon">🗳️</div>
+                <div class="metric-card__value">${total_votes.toLocaleString()}</div>
+                <div class="metric-card__label">Всего голосов</div>
+            </div>
+        </div>
+        
+        <div class="stats-section">
+            <h2 class="stats-section__title">📋 Результаты опроса</h2>
+            <div class="poll-results">
+    `;
+    
+    options.forEach(opt => {
+        html += `
+            <div class="result-option">
+                <div class="result-bar" style="width: ${opt.percent}%"></div>
+                <div class="result-content">
+                    <span>${escapeHtml(opt.text)}</span>
+                    <span class="result-votes">${opt.votes} гол.</span>
+                    <span class="result-percent">${opt.percent}%</span>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += `</div></div>`;
+    
+    // Analytics sections with Pie Charts
+    if (analytics) {
+        // Devices
+        if (analytics.devices && analytics.devices.length > 0) {
+            html += renderPieChartSection('📱 Устройства', analytics.devices, 'device');
+        }
+        
+        // OS
+        if (analytics.os && analytics.os.length > 0) {
+            html += renderPieChartSection('💻 Операционные системы', analytics.os, 'os');
+        }
+        
+        // Sources
+        if (analytics.sources && analytics.sources.length > 0) {
+            html += renderPieChartSection('🔗 Источники', analytics.sources, 'source');
+        }
+    }
+        
+    content.innerHTML = html;
+}
+
+function renderPieChartSection(title, items, type) {
+    const total = items.reduce((sum, item) => sum + parseInt(item.count), 0);
+    const colors = ['#5caf70', '#8a5caf', '#5c9caf', '#cf5caf', '#cfa55c', '#5ccf8a', '#cf5c8a', '#5ccfdd'];
+    
+    // Генерируем SVG pie chart
+    let svgPaths = '';
+    let cumulativePercent = 0;
+    
+    items.forEach((item, index) => {
+        const count = parseInt(item.count);
+        const percent = total > 0 ? (count / total * 100) : 0;
+        const startPercent = cumulativePercent;
+        cumulativePercent += percent;
+        
+        const startAngle = (startPercent / 100) * 360;
+        const endAngle = (cumulativePercent / 100) * 360;
+        
+        svgPaths += createPieSlice(startAngle, endAngle, colors[index % colors.length], index);
+    });
+    
+    let html = `
+        <div class="stats-section">
+            <h2 class="stats-section__title">${title}</h2>
+            <div class="pie-chart-container">
+                <div class="pie-chart-wrapper">
+                    <svg class="pie-chart-svg" viewBox="0 0 100 100">
+                        ${svgPaths}
+                    </svg>
+                    <div class="pie-chart-center">
+                        <div class="pie-chart-center__total">${total}</div>
+                        <div class="pie-chart-center__label">голосов</div>
+                    </div>
+                </div>
+                <div class="pie-legend">
+    `;
+    
+    items.forEach((item, index) => {
+        const count = parseInt(item.count);
+        const percent = total > 0 ? Math.round(count / total * 100) : 0;
+        const icon = getItemIcon(item.name, type);
+        
+        html += `
+            <div class="pie-legend-item">
+                <div class="pie-legend-color" style="background: ${colors[index % colors.length]}"></div>
+                <span class="pie-legend-icon">${icon}</span>
+                <div class="pie-legend-content">
+                    <div class="pie-legend-name">${escapeHtml(item.name)}</div>
+                    <div class="pie-legend-stats">
+                        <span class="pie-legend-count">${count.toLocaleString()}</span>
+                        <span class="pie-legend-percent">${percent}%</span>
+                    </div>
+                    <div class="pie-legend-bar">
+                        <div class="pie-legend-bar-fill" style="width: ${percent}%; background: ${colors[index % colors.length]}"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += `</div></div></div>`;
+    return html;
+}
+
+function createPieSlice(startAngle, endAngle, color, index) {
+    const x1 = 50 + 40 * Math.cos(Math.PI * startAngle / 180);
+    const y1 = 50 + 40 * Math.sin(Math.PI * startAngle / 180);
+    const x2 = 50 + 40 * Math.cos(Math.PI * endAngle / 180);
+    const y2 = 50 + 40 * Math.sin(Math.PI * endAngle / 180);
+    
+    const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1;
+    
+    return `<path d="M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArcFlag} 1 ${x2} ${y2} Z" fill="${color}" stroke="#1a1c1e" stroke-width="1"/>`;
+}
+
+function getItemIcon(name, type) {
+    if (type === 'source') {
+        const icons = { 
+            'telegram': '✈️', 
+            'vk': '💙', 
+            'direct': '🔗', 
+            'google': '🔍', 
+            'twitter': '🐦',
+            'facebook': '📘',
+            'youtube': '▶️',
+            'instagram': '📷',
+            'website': '🌐'
+        };
+        return icons[name.toLowerCase()] || '🔗';
+    }
+    
+    if (type === 'device') {
+        const icons = { 'mobile': '📱', 'tablet': '📟', 'desktop': '🖥️', 'unknown': '❓' };
+        return icons[name.toLowerCase()] || '📊';
+    }
+    
+    if (type === 'os') {
+        const icons = { 'Windows': '🪟', 'macOS': '🍎', 'Linux': '🐧', 'Android': '🤖', 'iOS': '📱', 'Other': '❓' };
+        return icons[name] || '💻';
+    }
+    
+    return '📊';
+}
+
+// Копирование ссылки с источником для get.php
+function copyShareUrl(source) {
+    const shareUrlInput = document.getElementById('share-url');
+    if (!shareUrlInput) return;
+    
+    const baseUrl = shareUrlInput.value.split('?')[0];
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('id');
+    const type = params.get('type') || 'poll';
+    
+    const shareUrl = `${baseUrl}?id=${id}&type=${type}&utm_source=${source}`;
+    
+    navigator.clipboard.writeText(shareUrl).then(() => {
+        const btn = event.target.closest('button');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '✅ Скопировано!';
+        setTimeout(() => {
+            btn.innerHTML = originalText;
+        }, 2000);
+    }).catch(() => {
+        showToast('Не удалось скопировать', 'error');
+    });
 }

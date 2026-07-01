@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Голосование · Votely</title>
+    <title>Статистика · Votely</title>
     <link rel="icon" href="votely.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles/main.css">
     <meta name="robots" content="noindex, nofollow">
@@ -79,53 +79,16 @@
             <section class="creator__panel">
                 <div class="creator__header">
                     <div>
-                        <p class="creator__eyebrow">Голосование</p>
-                        <h1 class="creator__title" id="vote-title">Загрузка...</h1>
+                        <p class="creator__eyebrow">Аналитика</p>
+                        <h1 class="creator__title" id="stats-title">Загрузка...</h1>
                     </div>
+                    <a href="javascript:history.back()" class="ghost-button">← Назад</a>
                 </div>
 
-                <div id="vote-content" class="viewer__content">
+                <div id="stats-content" class="stats-content">
                     <div class="viewer-empty">
                         <div class="viewer-empty-icon">⏳</div>
-                        <p>Загрузка данных...</p>
-                    </div>
-                </div>
-
-                <div id="share-section" class="share-section" hidden>
-                    <div class="share-box">
-                        <h3 class="share-title">📢 Поделиться опросом</h3>
-                        <div class="share-url-box">
-                            <input type="text" class="share-url-input" id="share-url" readonly>
-                            <button class="share-copy-btn" id="copy-link-btn" type="button">
-                                <span class="copy-icon">📋</span> Копировать
-                            </button>
-                        </div>
-                        <p class="share-hint">Отправьте эту ссылку участникам для голосования</p>
-                        
-                        <div style="margin-top: 16px;">
-                            <p class="share-hint" style="margin-bottom: 8px;">🔗 Примеры ссылок с источниками:</p>
-                            <div style="display: grid; gap: 8px;">
-                                <button class="share-copy-btn" onclick="copyShareUrl('telegram')" style="min-height: 40px; font-size: 14px;">
-                                    ✈️ Telegram
-                                </button>
-                                <button class="share-copy-btn" onclick="copyShareUrl('vk')" style="min-height: 40px; font-size: 14px;">
-                                    💙 ВКонтакте
-                                </button>
-                                <button class="share-copy-btn" onclick="copyShareUrl('website')" style="min-height: 40px; font-size: 14px;">
-                                    🌐 Сайт / Другое
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="share-box" style="margin-top: 16px; border-color: rgba(138, 92, 175, 0.3); background: linear-gradient(135deg, rgba(138, 92, 175, 0.1) 0%, rgba(138, 92, 175, 0.05) 100%);">
-                        <h3 class="share-title">📊 Статистика</h3>
-                        <div class="share-url-box">
-                            <a href="#" class="share-copy-btn" id="stats-link-btn" style="text-decoration: none; justify-content: center;">
-                                <span class="copy-icon">📈</span> Смотреть статистику
-                            </a>
-                        </div>
-                        <p class="share-hint">Диаграммы по устройствам, ОС, источникам и кампаниям</p>
+                        <p>Загрузка статистики...</p>
                     </div>
                 </div>
             </section>
@@ -165,7 +128,7 @@
     <script src="scripts/main.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            initGetPage();
+            initStatsPage();
         });
     </script>
 </body>

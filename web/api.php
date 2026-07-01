@@ -132,7 +132,6 @@ function getPoll($pdo, $id, $return = false) {
 function votePoll($pdo, $pollId) {
     global $body;
     
-    // Debug: проверяем body
     if (!$body) {
         http_response_code(400);
         echo json_encode(["message" => "Empty body", "debug" => $body]);
@@ -146,10 +145,69 @@ function votePoll($pdo, $pollId) {
         exit;
     }
     
-    // Вставка голоса
+    // Собираем метаданные
+    $userAgent = $_SERVER["HTTP_USER_AGENT"] ?? "";
+    $ip = $_SERVER["REMOTE_ADDR"] ?? "unknown";
+    
+    // UTM из URL или body
+    $utmSource = $_GET["utm_source"] ?? ($body["utm_source"] ?? "");
+    $utmMedium = $_GET["utm_medium"] ?? ($body["utm_medium"] ?? "");
+    
+    // Если нет utm_source, определяем из referrer
+    if (!$utmSource) {
+        $referrer = $_SERVER["HTTP_REFERER"] ?? "";
+        if ($referrer) {
+            $referrerHost = parse_url($referrer, PHP_URL_HOST) ?? "";
+            if (stripos($referrerHost, 'telegram.org') !== false || stripos($referrerHost, 't.me') !== false) {
+                $utmSource = 'telegram';
+            } elseif (stripos($referrerHost, 'vk.com') !== false || stripos($referrerHost, 'vkontakte.ru') !== false) {
+                $utmSource = 'vk';
+            } elseif (stripos($referrerHost, 'google.') !== false) {
+                $utmSource = 'google';
+            } elseif (stripos($referrerHost, 'twitter.com') !== false || stripos($referrerHost, 'x.com') !== false) {
+                $utmSource = 'twitter';
+            } elseif (stripos($referrerHost, 'facebook.com') !== false) {
+                $utmSource = 'facebook';
+            } elseif ($referrerHost) {
+                $utmSource = 'website';
+            } else {
+                $utmSource = 'direct';
+            }
+        } else {
+            $utmSource = 'direct';
+        }
+    }
+    
+    // Определяем тип устройства и ОС
+    $deviceType = detectDeviceType($userAgent);
+    $os = detectOS($userAgent);
+    
+    // Вставка голоса с метаданными
     try {
-        $stmt = $pdo->prepare("INSERT INTO poll_votes (poll_id, option_id) VALUES (:pid, :oid)");
-        $stmt->execute([":pid" => $pollId, ":oid" => $oid]);
+        $stmt = $pdo->prepare("
+            INSERT INTO poll_votes (
+                poll_id, 
+                option_id, 
+                user_agent, 
+                ip_address, 
+                utm_source, 
+                utm_medium,
+                device_type,
+                os_type
+            ) VALUES (
+                :pid, :oid, :ua, :ip, :us, :um, :dt, :os
+            )
+        ");
+        $stmt->execute([
+            ":pid" => $pollId,
+            ":oid" => $oid,
+            ":ua" => $userAgent,
+            ":ip" => $ip,
+            ":us" => $utmSource,
+            ":um" => $utmMedium,
+            ":dt" => $deviceType,
+            ":os" => $os
+        ]);
     } catch (PDOException $e) {
         http_response_code(500);
         echo json_encode(["message" => "DB error: " . $e->getMessage()]);
@@ -166,6 +224,25 @@ function votePoll($pdo, $pollId) {
     exit;
 }
     
+function detectDeviceType($ua) {
+    if (stripos($ua, 'Mobile') !== false || stripos($ua, 'Android') !== false || stripos($ua, 'iPhone') !== false || stripos($ua, 'iPad') !== false) {
+        return 'mobile';
+    }
+    if (stripos($ua, 'Tablet') !== false || stripos($ua, 'iPad') !== false) {
+        return 'tablet';
+    }
+    return 'desktop';
+}
+
+function detectOS($ua) {
+    if (stripos($ua, 'Windows') !== false) return 'Windows';
+    if (stripos($ua, 'Mac') !== false || stripos($ua, 'OS X') !== false) return 'macOS';
+    if (stripos($ua, 'Linux') !== false) return 'Linux';
+    if (stripos($ua, 'Android') !== false) return 'Android';
+    if (stripos($ua, 'iOS') !== false || stripos($ua, 'iPhone') !== false || stripos($ua, 'iPad') !== false) return 'iOS';
+    return 'Other';
+}
+    
 function createPoll($pdo) {
     global $body;
     if (empty($body['title'])) {
@@ -175,8 +252,12 @@ function createPoll($pdo) {
     }
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare("INSERT INTO polls (title, description) VALUES (:t, :d) RETURNING id::text");
-        $stmt->execute([":t" => $body["title"], ":d" => $body["description"] ?? ""]);
+        // Генерируем owner_key для доступа к статистике
+        $ownerKey = bin2hex(random_bytes(32));
+        $ownerKeyHash = hash('sha256', 'owner:' . $ownerKey);
+        
+        $stmt = $pdo->prepare("INSERT INTO polls (title, description, owner_key_hash) VALUES (:t, :d, :okh) RETURNING id::text");
+        $stmt->execute([":t" => $body["title"], ":d" => $body["description"] ?? "", ":okh" => $ownerKeyHash]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         $id = $row['id'];
 
@@ -187,7 +268,8 @@ function createPoll($pdo) {
             }
         }
         $pdo->commit();
-        echo json_encode(["id" => $id]);
+        // Возвращаем owner_key клиенту
+        echo json_encode(["id" => $id, "owner_key" => $ownerKey]);
         exit;
     } catch (Exception $e) {
         $pdo->rollBack();
@@ -273,14 +355,25 @@ function deleteItem($pdo, $type, $id) {
 }
 
 function pollStats($pdo, $pollId) {
-    $ownerKey = $_GET["owner_key"] ?? "";
-    if (!$ownerKey) { http_response_code(403); echo json_encode(["message" => "Forbidden"]); return; }
-    $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
-    $stmt = $pdo->prepare("SELECT 1 FROM polls WHERE id = :pid AND owner_key_hash = :okh LIMIT 1");
-    $stmt->execute([":pid" => $pollId, ":okh" => $ownerKeyHash]);
-    if (!$stmt->fetch()) { http_response_code(403); echo json_encode(["message" => "Forbidden"]); return; }
+    header('Content-Type: application/json; charset=utf-8');
     
-    $stmt = $pdo->prepare("SELECT id::text, title, description, is_anonymous, shuffle_options, allowed_countries FROM polls WHERE id = :id");
+    $ownerKey = $_GET["owner_key"] ?? "";
+    if (!$ownerKey) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Требуется ключ владельца"]); 
+        exit;
+    }
+    $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+    $stmt = $pdo->prepare("SELECT id::text FROM polls WHERE id = :pid AND owner_key_hash = :okh LIMIT 1");
+    $stmt->execute([":pid" => $pollId, ":okh" => $ownerKeyHash]);
+    $accessGranted = $stmt->fetch();
+    if (!$accessGranted) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Неверный ключ владельца"]); 
+        exit;
+    }
+    
+    $stmt = $pdo->prepare("SELECT id::text, title, description FROM polls WHERE id = :id");
     $stmt->execute([":id" => $pollId]);
     $poll = $stmt->fetch();
     
@@ -293,39 +386,32 @@ function pollStats($pdo, $pollId) {
         return ['id' => $opt['id'], 'text' => $opt['text'], 'votes' => (int)$opt['votes'], 'percent' => (int)$percent];
     }, $options);
     
-    // Analytics
     $analytics = [];
     
-    // Countries
-    $stmt = $pdo->prepare("SELECT ip_country as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid AND ip_country IS NOT NULL AND ip_country != '' GROUP BY ip_country ORDER BY count DESC LIMIT 10");
-    $stmt->execute([":pid" => $pollId]);
-    $countries = $stmt->fetchAll();
-    if ($countries) $analytics['countries'] = $countries;
-    
-    // Devices (simplified - mobile vs desktop based on user agent)
-    $stmt = $pdo->prepare("SELECT CASE WHEN user_agent LIKE '%Mobile%' OR user_agent LIKE '%Android%' OR user_agent LIKE '%iPhone%' THEN 'Mobile' ELSE 'Desktop' END as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid GROUP BY name ORDER BY count DESC");
+    $stmt = $pdo->prepare("SELECT COALESCE(device_type, 'unknown') as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid GROUP BY name ORDER BY count DESC");
     $stmt->execute([":pid" => $pollId]);
     $devices = $stmt->fetchAll();
     if ($devices) $analytics['devices'] = $devices;
     
-    // Browsers (simplified)
-    $stmt = $pdo->prepare("SELECT CASE WHEN user_agent LIKE '%Chrome%' THEN 'Chrome' WHEN user_agent LIKE '%Firefox%' THEN 'Firefox' WHEN user_agent LIKE '%Safari%' THEN 'Safari' WHEN user_agent LIKE '%Edge%' THEN 'Edge' ELSE 'Other' END as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid GROUP BY name ORDER BY count DESC LIMIT 5");
+    $stmt = $pdo->prepare("SELECT COALESCE(os_type, 'Unknown') as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid GROUP BY name ORDER BY count DESC");
     $stmt->execute([":pid" => $pollId]);
-    $browsers = $stmt->fetchAll();
-    if ($browsers) $analytics['browsers'] = $browsers;
+    $osList = $stmt->fetchAll();
+    if ($osList) $analytics['os'] = $osList;
     
-    // Sources (UTM)
-    $stmt = $pdo->prepare("SELECT COALESCE(NULLIF(utm_source, ''), 'direct') as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid GROUP BY name ORDER BY count DESC LIMIT 5");
+    $stmt = $pdo->prepare("SELECT COALESCE(NULLIF(utm_source, ''), 'direct') as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid GROUP BY name ORDER BY count DESC LIMIT 10");
     $stmt->execute([":pid" => $pollId]);
     $sources = $stmt->fetchAll();
     if ($sources) $analytics['sources'] = $sources;
     
-    echo json_encode([
+    $result = [
         "poll" => $poll,
         "options" => $optionsWithPercent,
         "total_votes" => $totalVotes,
         "analytics" => $analytics
-    ]);
+    ];
+    
+    echo json_encode($result, JSON_UNESCAPED_UNICODE);
+    exit;
 }
 
 function authMe($pdo) {
@@ -339,7 +425,7 @@ function authMe($pdo) {
     $user = $stmt->fetch();
     echo json_encode(["authenticated" => true, "user" => $user]);
 }
-
+    
 function telegramAuth($pdo) {
     global $body;
     $botToken = getenv("TELEGRAM_BOT_TOKEN") ?: "";
