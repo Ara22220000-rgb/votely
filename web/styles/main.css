@@ -1251,6 +1251,7 @@ a {
     }
 
     .nav {
+        display: grid;
         grid-template-areas:
             "brand"
             "menu"
