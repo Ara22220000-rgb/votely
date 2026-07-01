@@ -1,10 +1,8 @@
-<<<<<<< HEAD
-﻿<?php
-error_reporting(0);
-ini_set('display_errors', 0);
-=======
+
+
 <?php
->>>>>>> 0a626c65f1b8fde26287197a9752a2aa76a2115a
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
 header("Content-Type: application/json; charset=utf-8");
 
 $dbHost = getenv("PG_HOST") ?: "postgres";
@@ -112,71 +110,68 @@ function listPolls($pdo) {
         $stmt = $pdo->query("SELECT id::text, title, description FROM polls ORDER BY created_at DESC");
     }
     echo json_encode(["items" => $stmt->fetchAll()]);
+    exit;
 }
 
-function getPoll($pdo, $id) {
+function getPoll($pdo, $id, $return = false) {
     $stmt = $pdo->prepare("SELECT id::text, title, description FROM polls WHERE id = :id");
     $stmt->execute([":id" => $id]);
     $poll = $stmt->fetch();
-    if (!$poll) { http_response_code(404); echo json_encode(["message" => "Not found"]); return; }
+    if (!$poll) { 
+        if (!$return) { http_response_code(404); echo json_encode(["message" => "Not found"]); exit; }
+        return null;
+    }
     $stmt = $pdo->prepare("SELECT po.id::text, po.option_text as text, COUNT(pv.id)::int as votes FROM poll_options po LEFT JOIN poll_votes pv ON pv.option_id = po.id WHERE po.poll_id = :pid GROUP BY po.id, po.option_text, po.position ORDER BY po.position");
     $stmt->execute([":pid" => $id]);
     $poll["options"] = $stmt->fetchAll();
+    if ($return) return $poll;
     echo json_encode($poll);
+    exit;
 }
 
 function votePoll($pdo, $pollId) {
-    global $body, $ip;
-    $oid = $body["option_id"] ?? null;
-    if (!$oid) { http_response_code(400); echo json_encode(["message" => "Выберите вариант"]); return; }
+    global $body;
     
-    // Validate UUID format
-    if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $oid)) {
+    // Debug: проверяем body
+    if (!$body) {
         http_response_code(400);
-        echo json_encode(["message" => "Неверный формат варианта"]);
-        return;
+        echo json_encode(["message" => "Empty body", "debug" => $body]);
+        exit;
     }
     
-    // Rate limit per IP for voting
-    $voteRateFile = sys_get_temp_dir() . "/votely_vote_" . md5($ip . $pollId);
-    if (file_exists($voteRateFile)) {
-        $lastVote = (int)file_get_contents($voteRateFile);
-        if (time() - $lastVote < 60) {
-            http_response_code(429);
-            echo json_encode(["message" => "Подождите перед повторным голосованием"]);
-            return;
-        }
-    }
-    file_put_contents($voteRateFile, time());
-    
-    // Get device fingerprint
-    $userAgent = substr($_SERVER["HTTP_USER_AGENT"] ?? "", 0, 255);
-    $acceptLang = substr($_SERVER["HTTP_ACCEPT_LANGUAGE"] ?? "en", 0, 20);
-    $deviceHash = hash("sha256", $userAgent . $acceptLang . $ip);
-    $utmSource = substr($_GET["utm_source"] ?? "", 0, 100);
-    $ipCountry = substr($_SERVER["HTTP_CF_IPCOUNTRY"] ?? "", 0, 2);
-    
-    // Check if already voted from this device
-    $stmt = $pdo->prepare("SELECT id FROM poll_votes WHERE poll_id = :pid AND device_hash = :dh LIMIT 1");
-    $stmt->execute([":pid" => $pollId, ":dh" => $deviceHash]);
-    if ($stmt->fetch()) {
-        http_response_code(409);
-        echo json_encode(["message" => "Вы уже голосовали"]);
-        return;
+    $oid = $body["option_id"] ?? "";
+    if (!preg_match('#^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$#i', $oid)) { 
+        http_response_code(400);
+        echo json_encode(["message" => "Выберите вариант", "got" => $oid]);
+        exit;
     }
     
-    $stmt = $pdo->prepare("INSERT INTO poll_votes (poll_id, option_id, device_hash, ip_address, user_agent, utm_source, ip_country) VALUES (:pid, :oid, :dh, :ip, :ua, :utm, :ct)");
-    $stmt->execute([":pid" => $pollId, ":oid" => $oid, ":dh" => $deviceHash, ":ip" => $ip, ":ua" => $userAgent, ":utm" => $utmSource, ":ct" => $ipCountry]);
-    getPoll($pdo, $pollId);
+    // Вставка голоса
+    try {
+        $stmt = $pdo->prepare("INSERT INTO poll_votes (poll_id, option_id) VALUES (:pid, :oid)");
+        $stmt->execute([":pid" => $pollId, ":oid" => $oid]);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode(["message" => "DB error: " . $e->getMessage()]);
+        exit;
+    }
+    
+    $result = getPoll($pdo, $pollId, true);
+    if (!$result) {
+        http_response_code(404);
+        echo json_encode(["message" => "Poll not found"]);
+        exit;
+    }
+    echo json_encode($result);
+    exit;
 }
-
+    
 function createPoll($pdo) {
     global $body;
-<<<<<<< HEAD
     if (empty($body['title'])) {
         http_response_code(400);
         echo json_encode(['message' => 'Title required']);
-        return;
+        exit;
     }
     $pdo->beginTransaction();
     try {
@@ -186,39 +181,20 @@ function createPoll($pdo) {
         $id = $row['id'];
 
         if (!empty($body['options'])) {
-=======
-    $userId = getSessionUser($pdo);
-    if (!$userId) {
-        http_response_code(401);
-        echo json_encode(["code" => "unauthorized", "message" => "Требуется авторизация"]);
-        return;
-    }
-    $ownerKey = bin2hex(random_bytes(32));
-    $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
-    $pdo->beginTransaction();
-    try {
-        $stmt = $pdo->prepare("INSERT INTO polls (title, description, owner_user_id, owner_key_hash) VALUES (:t, :d, :uid, :okh) RETURNING id");
-        $stmt->execute([":t" => $body["title"], ":d" => $body["description"] ?? "", ":uid" => $userId, ":okh" => $ownerKeyHash]);
-        $id = $stmt->fetch()["id"];
-        if (!empty($body["options"])) {
->>>>>>> 0a626c65f1b8fde26287197a9752a2aa76a2115a
             $stmt = $pdo->prepare("INSERT INTO poll_options (poll_id, option_text, position) VALUES (:pid, :txt, :pos)");
             foreach ($body['options'] as $i => $opt) {
                 $stmt->execute([":pid" => $id, ":txt" => $opt, ":pos" => $i + 1]);
             }
         }
         $pdo->commit();
-<<<<<<< HEAD
         echo json_encode(["id" => $id]);
+        exit;
     } catch (Exception $e) {
         $pdo->rollBack();
         http_response_code(500);
         echo json_encode(["message" => $e->getMessage()]);
+        exit;
     }
-=======
-        echo json_encode(["id" => $id, "owner_key" => $ownerKey]);
-    } catch (Exception $e) { $pdo->rollBack(); http_response_code(500); }
->>>>>>> 0a626c65f1b8fde26287197a9752a2aa76a2115a
 }
 
 function listQuizzes($pdo) {
@@ -230,28 +206,29 @@ function listQuizzes($pdo) {
         $stmt = $pdo->query("SELECT id::text, title, description FROM quizzes ORDER BY created_at DESC");
     }
     echo json_encode(["items" => $stmt->fetchAll()]);
+    exit;
 }
 
 function getQuiz($pdo, $id) {
     $stmt = $pdo->prepare("SELECT q.id::text, q.title, q.description, qq.id as qid, qq.question_text FROM quizzes q JOIN quiz_questions qq ON qq.quiz_id = q.id WHERE q.id = :id LIMIT 1");
     $stmt->execute([":id" => $id]);
     $quiz = $stmt->fetch();
-    if (!$quiz) { http_response_code(404); return; }
+    if (!$quiz) { http_response_code(404); exit; }
     $stmt = $pdo->prepare("SELECT answer_text as text, is_correct::bool FROM quiz_answers WHERE question_id = :qid ORDER BY position");
     $stmt->execute([":qid" => $quiz["qid"]]);
     $quiz["answers"] = $stmt->fetchAll();
     $quiz["question"] = $quiz["question_text"];
     unset($quiz["qid"], $quiz["question_text"]);
     echo json_encode($quiz);
+    exit;
 }
 
 function createQuiz($pdo) {
     global $body;
-<<<<<<< HEAD
     if (empty($body['title']) || empty($body['question'])) {
         http_response_code(400);
         echo json_encode(['message' => 'Fields required']);
-        return;
+        exit;
     }
     $pdo->beginTransaction();
     try {
@@ -261,22 +238,6 @@ function createQuiz($pdo) {
         $qid = $row['id'];
 
         $stmt = $pdo->prepare("INSERT INTO quiz_questions (quiz_id, question_text, position) VALUES (:qid, :txt, 1) RETURNING id::text");
-=======
-    $userId = getSessionUser($pdo);
-    if (!$userId) {
-        http_response_code(401);
-        echo json_encode(["code" => "unauthorized", "message" => "Требуется авторизация"]);
-        return;
-    }
-    $ownerKey = bin2hex(random_bytes(32));
-    $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
-    $pdo->beginTransaction();
-    try {
-        $stmt = $pdo->prepare("INSERT INTO quizzes (title, description, owner_user_id, owner_key_hash) VALUES (:t, :d, :uid, :okh) RETURNING id");
-        $stmt->execute([":t" => $body["title"], ":d" => $body["description"] ?? "", ":uid" => $userId, ":okh" => $ownerKeyHash]);
-        $qid = $stmt->fetch()["id"];
-        $stmt = $pdo->prepare("INSERT INTO quiz_questions (quiz_id, question_text, position) VALUES (:qid, :txt, 1) RETURNING id");
->>>>>>> 0a626c65f1b8fde26287197a9752a2aa76a2115a
         $stmt->execute([":qid" => $qid, ":txt" => $body["question"]]);
         $qRow = $stmt->fetch(PDO::FETCH_ASSOC);
         $questionId = $qRow['id'];
@@ -293,17 +254,14 @@ function createQuiz($pdo) {
             }
         }
         $pdo->commit();
-<<<<<<< HEAD
         echo json_encode(["id" => $qid]);
+        exit;
     } catch (Exception $e) {
         $pdo->rollBack();
         http_response_code(500);
         echo json_encode(["message" => $e->getMessage()]);
+        exit;
     }
-=======
-        echo json_encode(["id" => $qid, "owner_key" => $ownerKey]);
-    } catch (Exception $e) { $pdo->rollBack(); http_response_code(500); }
->>>>>>> 0a626c65f1b8fde26287197a9752a2aa76a2115a
 }
 
 function deleteItem($pdo, $type, $id) {

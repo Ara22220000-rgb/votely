@@ -554,6 +554,12 @@ a {
     color: #bfc1c5;
     font-size: 16px;
     font-weight: 900;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.creator__switch-link:hover {
+    background: #2d2e31;
+    color: #ffffff;
 }
 
 .creator__switch-link.is-active {

@@ -11,6 +11,79 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+var (
+	ErrDuplicateVote     = errors.New("duplicate vote")
+	ErrPollClosed        = errors.New("poll closed")
+	ErrCountryNotAllowed = errors.New("country not allowed")
+)
+
+type (
+	VoteIdentity struct {
+		VoterTokenHash string
+		IPHash         string
+		DeviceHash     string
+		Country        string
+	}
+
+	TrafficEvent struct {
+		EventType      string
+		Path           string
+		Method         string
+		PollID         string
+		OptionID       string
+		VoterTokenHash string
+		IPHash         string
+		DeviceHash     string
+		UserAgent      string
+		Referrer       string
+		LandingURL     string
+		UTMSource      string
+		UTMMedium      string
+		UTMCampaign    string
+		UTMTerm        string
+		UTMContent     string
+		IPCountry      string
+		IPRegion       string
+		IPCity         string
+		IPGeoSource    string
+		AcceptLanguage string
+	}
+
+	VoteAttribution struct {
+		OptionID    string
+		OptionText  string
+		Country     string
+		GeoSource   string
+		UTMSource   string
+		UTMCampaign string
+		UserAgent   string
+		CreatedAt   string
+	}
+
+	OptionStats struct {
+		ID      string `json:"id"`
+		Text    string `json:"text"`
+		Votes   int    `json:"votes"`
+		Percent int    `json:"percent"`
+	}
+
+	PollStats struct {
+		Poll        PollDetail      `json:"poll"`
+		Options     []OptionStats   `json:"options"`
+		TotalVotes  int             `json:"total_votes"`
+		Voters      []VoteAttribution `json:"voters"`
+	}
+
+	TelegramUser struct {
+		ID        int64     `json:"id"`
+		FirstName string    `json:"first_name"`
+		LastName  string    `json:"last_name"`
+		Username  string    `json:"username"`
+		PhotoURL  string    `json:"photo_url"`
+		AuthDate  time.Time `json:"auth_date"`
+	}
+)
+
 type Store struct {
 	db *pgxpool.Pool
 }

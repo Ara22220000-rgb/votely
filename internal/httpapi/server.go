@@ -57,10 +57,15 @@ func NewServer(cfg ServerConfig) *http.Server {
 	mux.HandleFunc("GET /api/v1/polls", api.listPolls)
 	mux.HandleFunc("POST /api/v1/polls", api.createPoll)
 	mux.HandleFunc("GET /api/v1/polls/{id}", api.getPoll)
+	mux.HandleFunc("POST /api/v1/polls/{id}/votes", api.votePoll)
+	mux.HandleFunc("GET /api/v1/polls/{id}/stats", api.pollStats)
 	mux.HandleFunc("DELETE /api/v1/polls/{id}", api.adminOnly(api.deletePoll))
 	mux.HandleFunc("GET /api/v1/quizzes", api.listQuizzes)
 	mux.HandleFunc("POST /api/v1/quizzes", api.createQuiz)
 	mux.HandleFunc("GET /api/v1/quizzes/{id}", api.getQuiz)
+	mux.HandleFunc("DELETE /api/v1/quizzes/{id}", api.adminOnly(api.deleteQuiz))
+	mux.HandleFunc("GET /api/v1/auth/telegram/config", api.telegramConfig)
+	mux.HandleFunc("POST /api/v1/auth/telegram", api.telegramAuth)
 	mux.HandleFunc("POST /api/v1/admin/sql", api.adminOnly(api.executeSQL))
 	mux.Handle("GET /", staticHandler(cfg.StaticDir))
 
@@ -431,37 +436,8 @@ func (s *apiServer) getQuiz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, quiz)
 }
 
-func (s *apiServer) adminOnly(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "admin123" {
-			writeError(w, http.StatusUnauthorized, "unauthorized", "Доступ запрещен.")
-			return
-		}
-		next(w, r)
-	}
-}
-
 type sqlRequest struct {
 	Query string `json:"query"`
-}
-
-func (s *apiServer) executeSQL(w http.ResponseWriter, r *http.Request) {
-	var req sqlRequest
-	if err := decodeJSON(w, r, &req); err != nil {
-		return
-	}
-	if strings.TrimSpace(req.Query) == "" {
-		writeError(w, http.StatusBadRequest, "empty_query", "Запрос не может быть пустым.")
-		return
-	}
-
-	result, err := s.store.ExecuteSQL(r.Context(), req.Query)
-	if err != nil {
-		s.logger.Error("sql execution failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "sql_error", err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *apiServer) adminOnly(next http.HandlerFunc) http.HandlerFunc {
@@ -472,10 +448,6 @@ func (s *apiServer) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
-}
-
-type sqlRequest struct {
-	Query string `json:"query"`
 }
 
 func (s *apiServer) executeSQL(w http.ResponseWriter, r *http.Request) {
@@ -822,21 +794,6 @@ func (l *rateLimiter) allow(remoteAddr string) bool {
 	bucket.count++
 	l.clients[key] = bucket
 	return bucket.count <= l.limit
-}
-// ... в NewServer добавьте маршруты:
-// mux.HandleFunc("DELETE /api/v1/polls/{id}", api.adminOnly(api.deletePoll))
-// mux.HandleFunc("DELETE /api/v1/quizzes/{id}", api.adminOnly(api.deleteQuiz))
-
-func (s *apiServer) adminOnly(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// В реальном проекте пароль должен быть в конфиге
-		const adminPass = "admin123" 
-		if r.Header.Get("Authorization") != adminPass {
-			writeError(w, http.StatusUnauthorized, "unauthorized", "Доступ запрещен.")
-			return
-		}
-		next(w, r)
-	}
 }
 
 func (s *apiServer) deletePoll(w http.ResponseWriter, r *http.Request) {

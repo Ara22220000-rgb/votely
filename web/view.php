@@ -26,12 +26,7 @@
                     </div>
                     <a class="nav-link is-active" href="browse.php?type=poll">Опросы</a>
                 </div>
-<<<<<<< HEAD
-                <div></div>
-                <div>
-=======
                 <div class="searchdiv">
->>>>>>> 0a626c65f1b8fde26287197a9752a2aa76a2115a
                     <form class="search-form" action="browse.php" role="search">
                         <input name="q" class="search" type="text" placeholder="Поиск" aria-label="Найти опрос">
                         <button class="search-button" type="submit" aria-label="Найти">
