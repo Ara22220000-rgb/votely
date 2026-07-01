@@ -60,10 +60,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const createForm = document.querySelector('[data-create-form]');
     const browseRoot = document.querySelector('[data-browse-root]');
     const detailRoot = document.querySelector('[data-detail-root]');
+    const voteContent = document.getElementById('vote-content');
 
     if (createForm) initCreateForm(createForm);
     if (browseRoot) initBrowsePage(browseRoot);
     if (detailRoot) initDetailPage(detailRoot);
+    if (voteContent) initGetPage();
 });
 
 function initCreateForm(form) {
@@ -114,7 +116,10 @@ function initCreateForm(form) {
                 body: JSON.stringify(type === 'quiz' ? collectQuizPayload(form) : collectPollPayload(form))
             });
             const id = result.id;
-            if (id) window.location.href = 'view.php?type=' + type + '&id=' + id;
+            if (id) {
+                // Перенаправляем на get.php с флагом создателя
+                window.location.href = 'get.php?id=' + id + '&type=' + type + '&creator=1';
+            }
         } catch (err) {
             setStatus(status, err.message, 'error');
         } finally { btn.disabled = false; }
@@ -546,4 +551,92 @@ function renderQuizView(container, data) {
     
     container.innerHTML = '';
     container.appendChild(quizDiv);
+}
+
+// Инициализация страницы голосования по уникальной ссылке
+function initGetPage() {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('id');
+    const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
+    const content = document.getElementById('vote-content');
+    const titleEl = document.getElementById('vote-title');
+    const shareSection = document.getElementById('share-section');
+    const shareUrlInput = document.getElementById('share-url');
+    const copyBtn = document.getElementById('copy-link-btn');
+    
+    if (!id) {
+        content.innerHTML = `
+            <div class="viewer-empty">
+                <div class="viewer-empty-icon">❌</div>
+                <p>Неверная ссылка</p>
+                <p style="margin-top: 12px; font-size: 16px; color: #6b6e73;">
+                    Проверьте URL или создайте новый опрос
+                </p>
+                <a href="create.php?type=${type}" class="primary-button" style="margin-top: 20px; display: inline-flex;">
+                    Создать опрос
+                </a>
+            </div>
+        `;
+        if (titleEl) titleEl.textContent = 'Ошибка';
+        return;
+    }
+    
+    // Загружаем данные опроса/викторины
+    loadVoteData(id, type, content, titleEl);
+    
+    // Показываем секцию поделиться только для создателя
+    const isCreator = params.get('creator') === '1';
+    if (isCreator) {
+        const currentUrl = window.location.href.split('?')[0];
+        const shareUrl = `${currentUrl}?id=${id}&type=${type}`;
+        shareUrlInput.value = shareUrl;
+        shareSection.hidden = false;
+        
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => {
+                shareUrlInput.select();
+                document.execCommand('copy');
+                copyBtn.innerHTML = '<span class="copy-icon">✅</span> Скопировано!';
+                setTimeout(() => {
+                    copyBtn.innerHTML = '<span class="copy-icon">📋</span> Копировать';
+                }, 2000);
+            });
+        }
+    }
+}
+
+async function loadVoteData(id, type, content, titleEl) {
+    try {
+        const plural = type === 'quiz' ? 'quizzes' : 'polls';
+        const data = await apiJSON('/api/v1/' + plural + '/' + id);
+        
+        if (!data || !data.id) {
+            throw new Error('Не найдено');
+        }
+        
+        if (titleEl) {
+            titleEl.innerHTML = `
+                <span class="type-icon">${type === 'quiz' ? '🧠' : '📊'}</span>
+                <span class="type-text">${data.title || 'Без названия'}</span>
+            `;
+        }
+        
+        if (type === 'quiz') {
+            renderQuizView(content, data);
+        } else {
+            renderPollView(content, data, id);
+        }
+    } catch (e) {
+        console.error('Ошибка загрузки:', e);
+        content.innerHTML = `
+            <div class="viewer-empty">
+                <div class="viewer-empty-icon">❌</div>
+                <p>Опрос не найден или удалён</p>
+                <a href="create.php?type=${type}" class="primary-button" style="margin-top: 20px; display: inline-flex;">
+                    Создать новый
+                </a>
+            </div>
+        `;
+        if (titleEl) titleEl.textContent = 'Не найдено';
+    }
 }

@@ -18,7 +18,6 @@
 
                 <div class="nav__middle">
                     <a class="nav-link" href="index.php">Главная</a>
-                    <a class="nav-link" href="browse.php?type=poll">Опросы</a>
 
                     <div class="dropdown" data-dropdown>
                         <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
@@ -29,6 +28,7 @@
                             <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
                         </div>
                     </div>
+                    <a class="nav-link" href="browse.php?type=poll">Опросы</a>
                 </div>
                 <div class="searchdiv">
                     <form class="search-form" action="browse.php" role="search">
