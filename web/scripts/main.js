@@ -191,10 +191,26 @@ function collectQuizPayload(form) {
 async function initBrowsePage(root) {
     const type = new URLSearchParams(window.location.search).get('type') === 'quiz' ? 'quiz' : 'poll';
     const list = root.querySelector('[data-list]');
+    const titleEl = root.querySelector('[data-browse-title]');
+    const badgeEl = root.querySelector('[data-type-badge]');
+    const switchLinks = root.querySelectorAll('.creator__switch-link');
+    
     if (!list) {
         console.error('Не найден элемент [data-list]');
         return;
     }
+    
+    // Обновляем активный переключатель
+    switchLinks.forEach(link => {
+        link.classList.remove('is-active');
+        if (link.dataset.typeLink === type) {
+            link.classList.add('is-active');
+        }
+    });
+    
+    // Обновляем заголовок и бейдж
+    updateBrowseTitle(titleEl, badgeEl, type);
+    
     try {
         // Исправляем множественное число: quiz -> quizzes, poll -> polls
         const plural = type === 'quiz' ? 'quizzes' : 'polls';
@@ -206,6 +222,22 @@ async function initBrowsePage(root) {
     }
 }
 
+function updateBrowseTitle(titleEl, badgeEl, type) {
+    const isQuiz = type === 'quiz';
+    const icon = isQuiz ? '🧠' : '📊';
+    const text = isQuiz ? 'Викторины' : 'Опросы';
+    const badgeText = isQuiz ? 'Показаны викторины' : 'Показаны опросы';
+    
+    if (titleEl) {
+        titleEl.innerHTML = `<span class="type-icon">${icon}</span><span class="type-text">${text}</span>`;
+    }
+    
+    if (badgeEl) {
+        badgeEl.innerHTML = `<span class="badge-icon">${icon}</span><span class="badge-text">${badgeText}</span>`;
+        badgeEl.className = 'browse-type-badge ' + (isQuiz ? 'is-quiz' : 'is-poll');
+    }
+}
+
 function renderCards(list, items, type) {
     if (!list) return;
     list.innerHTML = '';
@@ -213,11 +245,21 @@ function renderCards(list, items, type) {
         list.textContent = 'Нет данных';
         return;
     }
+    
+    const isQuiz = type === 'quiz';
+    const icon = isQuiz ? '🧠' : '📊';
+    const typeLabel = isQuiz ? 'Викторина' : 'Опрос';
+    
     items.forEach(item => {
         const a = document.createElement('a');
         a.className = 'content-card';
         a.href = 'view.php?type=' + type + '&id=' + item.id;
-        a.innerHTML = '<h2>' + (item.title || '') + '</h2><p>' + (item.description || '') + '</p>';
+        a.dataset.type = type;
+        a.innerHTML = `
+            <div class="card-type-badge">${icon} ${typeLabel}</div>
+            <h2>${item.title || ''}</h2>
+            <p>${item.description || ''}</p>
+        `;
         list.appendChild(a);
     });
 }
