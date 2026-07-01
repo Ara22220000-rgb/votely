@@ -105,7 +105,6 @@
                             <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
                         </div>
                     </div>
-                    <a class="browse-cta" href="browse.php?type=poll">Смотреть опросы</a>
                 </div>
             </section>
         </main>
