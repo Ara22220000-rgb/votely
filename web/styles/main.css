@@ -773,6 +773,31 @@ a {
     opacity: 0.72;
 }
 
+/* Creator Type Badge */
+.creator-type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 22px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    font-size: 17px;
+    font-weight: 800;
+    animation: slideDown 0.3s ease;
+}
+
+.creator-type-badge.is-poll {
+    background: linear-gradient(135deg, rgba(92, 175, 112, 0.2) 0%, rgba(92, 175, 112, 0.1) 100%);
+    border: 2px solid rgba(92, 175, 112, 0.5);
+    color: #92d2a2;
+}
+
+.creator-type-badge.is-quiz {
+    background: linear-gradient(135deg, rgba(138, 92, 175, 0.2) 0%, rgba(138, 92, 175, 0.1) 100%);
+    border: 2px solid rgba(138, 92, 175, 0.5);
+    color: #d4a5ff;
+}
+
 .creator-form__actions {
     display: flex;
     align-items: center;
@@ -785,6 +810,26 @@ a {
     color: #bfc1c5;
     font-size: 16px;
     font-weight: 800;
+}
+
+/* Section Icons */
+.section-icon {
+    margin-right: 8px;
+    font-size: 18px;
+}
+
+/* Button Icon */
+.btn-icon {
+    margin-right: 8px;
+    font-size: 18px;
+}
+
+/* Primary Button with Icon */
+.primary-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
 }
 
 .form-status.is-error {

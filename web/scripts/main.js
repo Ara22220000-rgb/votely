@@ -74,12 +74,22 @@ function initCreateForm(form) {
     const optionsList = form.querySelector('[data-options-list]');
     const questionsList = form.querySelector('[data-questions-list]');
     const status = form.querySelector('[data-form-status]');
+    const badgeEl = form.closest('.creator__panel')?.querySelector('[data-type-badge]');
+    const switchLinks = document.querySelectorAll('.creator__switch-link');
 
     if (pollFields) pollFields.hidden = type !== 'poll';
     if (quizFields) quizFields.hidden = type !== 'quiz';
 
-    const titleEl = document.querySelector('#creator-title');
-    if (titleEl) titleEl.textContent = type === 'quiz' ? 'Создать викторину' : 'Создать опрос';
+    // Обновляем активный переключатель
+    switchLinks.forEach(link => {
+        link.classList.remove('is-active');
+        if (link.dataset.typeLink === type) {
+            link.classList.add('is-active');
+        }
+    });
+    
+    // Обновляем заголовок и бейдж
+    updateCreateTitle(badgeEl, type);
 
     addDefaultRows(type, optionsList, questionsList);
 
@@ -109,6 +119,22 @@ function initCreateForm(form) {
             setStatus(status, err.message, 'error');
         } finally { btn.disabled = false; }
     });
+}
+
+function updateCreateTitle(badgeEl, type) {
+    const isQuiz = type === 'quiz';
+    const icon = isQuiz ? '🧠' : '📊';
+    const text = isQuiz ? 'Создание викторины' : 'Создание опроса';
+    const titleEl = document.querySelector('#creator-title');
+    
+    if (titleEl) {
+        titleEl.innerHTML = `<span class="type-icon">${icon}</span><span class="type-text">${isQuiz ? 'Создать викторину' : 'Создать опрос'}</span>`;
+    }
+    
+    if (badgeEl) {
+        badgeEl.innerHTML = `<span class="badge-icon">${icon}</span><span class="badge-text">${text}</span>`;
+        badgeEl.className = 'creator-type-badge ' + (isQuiz ? 'is-quiz' : 'is-poll');
+    }
 }
 
 function addDefaultRows(type, optionsList, questionsList) {
