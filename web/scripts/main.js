@@ -1,4 +1,5 @@
-﻿document.querySelectorAll('[data-dropdown]').forEach((dropdown) => {
+﻿
+document.querySelectorAll('[data-dropdown]').forEach((dropdown) => {
     const trigger = dropdown.querySelector('.dropdown__trigger');
     const setExpanded = (expanded) => { trigger?.setAttribute('aria-expanded', String(expanded)); };
     dropdown.addEventListener('mouseenter', () => setExpanded(true));
@@ -44,7 +45,7 @@ async function apiJSON(url, options = {}) {
         return data;
     } catch (e) {
         console.error('Ошибка парсинга JSON:', e.message, 'Ответ:', text.substring(0, 200));
-        throw new Error('Некорректный ответ сервера');
+        throw e;
     }
 }
 
@@ -190,37 +191,66 @@ function collectQuizPayload(form) {
 async function initBrowsePage(root) {
     const type = new URLSearchParams(window.location.search).get('type') === 'quiz' ? 'quiz' : 'poll';
     const list = root.querySelector('[data-list]');
+    if (!list) {
+        console.error('Не найден элемент [data-list]');
+        return;
+    }
     try {
-        const data = await apiJSON('/api/v1/' + type + 's');
+        // Исправляем множественное число: quiz -> quizzes, poll -> polls
+        const plural = type === 'quiz' ? 'quizzes' : 'polls';
+        const data = await apiJSON('/api/v1/' + plural);
         renderCards(list, data.items || [], type);
-    } catch (e) { list.textContent = e.message; }
+    } catch (e) {
+        console.error('Ошибка загрузки:', e);
+        list.textContent = e.message;
+    }
 }
 
 function renderCards(list, items, type) {
+    if (!list) return;
     list.innerHTML = '';
+    if (!items || !Array.isArray(items)) {
+        list.textContent = 'Нет данных';
+        return;
+    }
     items.forEach(item => {
         const a = document.createElement('a');
         a.className = 'content-card';
         a.href = 'view.php?type=' + type + '&id=' + item.id;
-        a.innerHTML = '<h2>' + item.title + '</h2><p>' + (item.description || '') + '</p>';
+        a.innerHTML = '<h2>' + (item.title || '') + '</h2><p>' + (item.description || '') + '</p>';
         list.appendChild(a);
     });
 }
-
+    
 async function initDetailPage(root) {
     const params = new URLSearchParams(window.location.search);
     const type = params.get('type');
     const id = params.get('id');
     const container = root.querySelector('[data-detail]');
+    if (!type || !id) {
+        container.textContent = 'Не указан тип или ID';
+        return;
+    }
     try {
-        const data = await apiJSON('/api/v1/' + type + 's/' + id);
+        // Исправляем множественное число: quiz -> quizzes, poll -> polls
+        const plural = type === 'quiz' ? 'quizzes' : 'polls';
+        const url = '/api/v1/' + plural + '/' + id;
+        const data = await apiJSON(url);
         renderDetail(container, data, type, id);
-    } catch (e) { container.textContent = e.message; }
+    } catch (e) {
+        console.error('initDetailPage error:', e);
+        container.textContent = e.message;
+    }
 }
-
+    
 function renderDetail(container, data, type, id) {
+    console.log('renderDetail:', { data, type, id });
+    if (!data) {
+        container.textContent = 'Нет данных';
+        return;
+    }
     container.innerHTML = `
-        <h1 class="viewer__title">${data.title}</h1>
+        <h1 class="viewer__title">${data.title || ''}</h1>
         <p class="viewer__description">${data.description || ''}</p>
         <div class="viewer__content"></div>
     `;
@@ -231,7 +261,7 @@ function renderDetail(container, data, type, id) {
         renderPollView(content, data, id);
     }
 }
-
+    
 function renderPollView(container, data, id) {
     const form = document.createElement('form');
     form.className = 'vote-form';
