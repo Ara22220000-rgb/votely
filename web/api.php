@@ -148,39 +148,69 @@ function votePoll($pdo, $pollId) {
     // Собираем метаданные
     $userAgent = $_SERVER["HTTP_USER_AGENT"] ?? "";
     $ip = $_SERVER["REMOTE_ADDR"] ?? "unknown";
+    $referrer = $_SERVER["HTTP_REFERER"] ?? "";
     
-    // UTM из URL или body
-    $utmSource = $_GET["utm_source"] ?? ($body["utm_source"] ?? "");
-    $utmMedium = $_GET["utm_medium"] ?? ($body["utm_medium"] ?? "");
+    // UTM из body (от JavaScript) или URL
+    $utmSource = $body["utm_source"] ?? ($_GET["utm_source"] ?? "");
+    $utmMedium = $body["utm_medium"] ?? ($_GET["utm_medium"] ?? "");
     
-    // Если нет utm_source, определяем из referrer
-    if (!$utmSource) {
-        $referrer = $_SERVER["HTTP_REFERER"] ?? "";
-        if ($referrer) {
-            $referrerHost = parse_url($referrer, PHP_URL_HOST) ?? "";
-            if (stripos($referrerHost, 'telegram.org') !== false || stripos($referrerHost, 't.me') !== false) {
-                $utmSource = 'telegram';
-            } elseif (stripos($referrerHost, 'vk.com') !== false || stripos($referrerHost, 'vkontakte.ru') !== false) {
-                $utmSource = 'vk';
-            } elseif (stripos($referrerHost, 'google.') !== false) {
-                $utmSource = 'google';
-            } elseif (stripos($referrerHost, 'twitter.com') !== false || stripos($referrerHost, 'x.com') !== false) {
-                $utmSource = 'twitter';
-            } elseif (stripos($referrerHost, 'facebook.com') !== false) {
-                $utmSource = 'facebook';
-            } elseif ($referrerHost) {
-                $utmSource = 'website';
-            } else {
-                $utmSource = 'direct';
-            }
+    // Если JavaScript не определил, пробуем серверное определение по Referer заголовку
+    if (!$utmSource && $referrer) {
+        $referrerHost = parse_url($referrer, PHP_URL_HOST) ?? "";
+        
+        // Социальные сети и платформы
+        if (stripos($referrerHost, 't.me') !== false || stripos($referrerHost, 'telegram.org') !== false || stripos($referrerHost, 'telegram.me') !== false) {
+            $utmSource = 'telegram';
+        } elseif (stripos($referrerHost, 'vk.com') !== false || stripos($referrerHost, 'vkontakte.ru') !== false) {
+            $utmSource = 'vk';
+        } elseif (stripos($referrerHost, 'ok.ru') !== false || stripos($referrerHost, 'odnoklassniki') !== false) {
+            $utmSource = 'ok';
+        } elseif (stripos($referrerHost, 'twitter.com') !== false || stripos($referrerHost, 'x.com') !== false) {
+            $utmSource = 'twitter';
+        } elseif (stripos($referrerHost, 'facebook.com') !== false || stripos($referrerHost, 'fb.com') !== false) {
+            $utmSource = 'facebook';
+        } elseif (stripos($referrerHost, 'instagram.com') !== false || stripos($referrerHost, 'instagr.am') !== false) {
+            $utmSource = 'instagram';
+        } elseif (stripos($referrerHost, 'tiktok.com') !== false) {
+            $utmSource = 'tiktok';
+        } elseif (stripos($referrerHost, 'youtube.com') !== false || stripos($referrerHost, 'youtu.be') !== false) {
+            $utmSource = 'youtube';
+        } elseif (stripos($referrerHost, 'reddit.com') !== false || stripos($referrerHost, 'redd.it') !== false) {
+            $utmSource = 'reddit';
+        } elseif (stripos($referrerHost, 'linkedin.com') !== false || stripos($referrerHost, 'lnkd.in') !== false) {
+            $utmSource = 'linkedin';
+        } elseif (stripos($referrerHost, 'pinterest.com') !== false || stripos($referrerHost, 'pin.it') !== false) {
+            $utmSource = 'pinterest';
+        } elseif (stripos($referrerHost, 'discord.com') !== false || stripos($referrerHost, 'discordapp') !== false) {
+            $utmSource = 'discord';
+        } elseif (stripos($referrerHost, 'whatsapp.com') !== false || stripos($referrerHost, 'wa.me') !== false) {
+            $utmSource = 'whatsapp';
+        } elseif (stripos($referrerHost, 'google.') !== false || stripos($referrerHost, 'g.co') !== false) {
+            $utmSource = 'google';
+        } elseif (stripos($referrerHost, 'yandex.') !== false || stripos($referrerHost, 'ya.ru') !== false) {
+            $utmSource = 'yandex';
+        } elseif (stripos($referrerHost, 'bing.com') !== false) {
+            $utmSource = 'bing';
+        } elseif (stripos($referrerHost, 'duckduckgo.com') !== false) {
+            $utmSource = 'duckduckgo';
+        } elseif (stripos($referrerHost, 'mail.ru') !== false) {
+            $utmSource = 'mailru';
+        } elseif ($referrerHost) {
+            $utmSource = 'website';
         } else {
             $utmSource = 'direct';
         }
+    } elseif (!$utmSource) {
+        $utmSource = 'direct';
     }
     
     // Определяем тип устройства и ОС
     $deviceType = detectDeviceType($userAgent);
     $os = detectOS($userAgent);
+    $browser = detectBrowser($userAgent);
+    
+    // Определяем страну по IP (через заголовки прокси или GeoIP)
+    $ipCountry = detectCountry($ip);
     
     // Вставка голоса с метаданными
     try {
@@ -190,12 +220,14 @@ function votePoll($pdo, $pollId) {
                 option_id, 
                 user_agent, 
                 ip_address, 
+                ip_country,
                 utm_source, 
                 utm_medium,
                 device_type,
-                os_type
+                os_type,
+                browser_type
             ) VALUES (
-                :pid, :oid, :ua, :ip, :us, :um, :dt, :os
+                :pid, :oid, :ua, :ip, :ic, :us, :um, :dt, :os, :br
             )
         ");
         $stmt->execute([
@@ -203,10 +235,12 @@ function votePoll($pdo, $pollId) {
             ":oid" => $oid,
             ":ua" => $userAgent,
             ":ip" => $ip,
+            ":ic" => $ipCountry,
             ":us" => $utmSource,
             ":um" => $utmMedium,
             ":dt" => $deviceType,
-            ":os" => $os
+            ":os" => $os,
+            ":br" => $browser
         ]);
     } catch (PDOException $e) {
         http_response_code(500);
@@ -225,22 +259,143 @@ function votePoll($pdo, $pollId) {
 }
     
 function detectDeviceType($ua) {
-    if (stripos($ua, 'Mobile') !== false || stripos($ua, 'Android') !== false || stripos($ua, 'iPhone') !== false || stripos($ua, 'iPad') !== false) {
+    // Сначала проверяем iPad (в iOS 13+ iPad притворяется Mac)
+    if (stripos($ua, 'iPad') !== false) {
+        return 'tablet';
+    }
+    // iPhone и другие телефоны
+    if (stripos($ua, 'iPhone') !== false || stripos($ua, 'Mobile') !== false) {
         return 'mobile';
     }
-    if (stripos($ua, 'Tablet') !== false || stripos($ua, 'iPad') !== false) {
+    // Планшеты на Android
+    if (stripos($ua, 'Tablet') !== false || stripos($ua, 'Android') !== false) {
         return 'tablet';
     }
     return 'desktop';
 }
 
-function detectOS($ua) {
-    if (stripos($ua, 'Windows') !== false) return 'Windows';
-    if (stripos($ua, 'Mac') !== false || stripos($ua, 'OS X') !== false) return 'macOS';
-    if (stripos($ua, 'Linux') !== false) return 'Linux';
-    if (stripos($ua, 'Android') !== false) return 'Android';
-    if (stripos($ua, 'iOS') !== false || stripos($ua, 'iPhone') !== false || stripos($ua, 'iPad') !== false) return 'iOS';
+function detectBrowser($ua) {
+    // Chrome (но не Edge, не Opera, не Samsung)
+    if (stripos($ua, 'Chrome') !== false && stripos($ua, 'Edg') === false && stripos($ua, 'OPR') === false && stripos($ua, 'SamsungBrowser') === false) {
+        return 'Chrome';
+    }
+    // Firefox
+    if (stripos($ua, 'Firefox') !== false) {
+        return 'Firefox';
+    }
+    // Safari (но не Chrome)
+    if (stripos($ua, 'Safari') !== false && stripos($ua, 'Chrome') === false) {
+        return 'Safari';
+    }
+    // Edge
+    if (stripos($ua, 'Edg') !== false) {
+        return 'Edge';
+    }
+    // Opera
+    if (stripos($ua, 'OPR') !== false || stripos($ua, 'Opera') !== false) {
+        return 'Opera';
+    }
+    // Samsung Internet
+    if (stripos($ua, 'SamsungBrowser') !== false) {
+        return 'Samsung Internet';
+    }
+    // Яндекс.Браузер
+    if (stripos($ua, 'YaBrowser') !== false) {
+        return 'Yandex';
+    }
     return 'Other';
+}
+    
+function detectOS($ua) {
+    // iOS устройства (iPhone, iPad, iPod)
+    if (stripos($ua, 'iPhone') !== false || stripos($ua, 'iPad') !== false || stripos($ua, 'iPod') !== false) {
+        return 'iOS';
+    }
+    // iOS 13+ на iPad говорит "Macintosh", проверяем дополнительные признаки
+    if (stripos($ua, 'Mac') !== false && (stripos($ua, 'Mobile') !== false || stripos($ua, 'Safari') !== false)) {
+        // Проверяем, не настоящий ли это Mac
+        if (stripos($ua, 'iOS') !== false) {
+            return 'iOS';
+        }
+    }
+    // Android
+    if (stripos($ua, 'Android') !== false) {
+        return 'Android';
+    }
+    // Windows
+    if (stripos($ua, 'Windows') !== false) {
+        return 'Windows';
+    }
+    // macOS (настоящий Mac)
+    if (stripos($ua, 'Mac') !== false || stripos($ua, 'OS X') !== false) {
+        return 'macOS';
+    }
+    // Linux
+    if (stripos($ua, 'Linux') !== false) {
+        return 'Linux';
+    }
+    return 'Other';
+}
+    
+function detectCountry($ip) {
+    // Сначала проверяем заголовки от прокси (Cloudflare, Vercel, Fly.io)
+    if (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
+        return strtoupper(trim($_SERVER['HTTP_CF_IPCOUNTRY']));
+    }
+    if (!empty($_SERVER['HTTP_X_VERCEL_IP_COUNTRY'])) {
+        return strtoupper(trim($_SERVER['HTTP_X_VERCEL_IP_COUNTRY']));
+    }
+    if (!empty($_SERVER['HTTP_FLY_CLIENT_IP_COUNTRY'])) {
+        return strtoupper(trim($_SERVER['HTTP_FLY_CLIENT_IP_COUNTRY']));
+    }
+    
+    // Для локальных IP возвращаем пустую строку
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+        return '';
+    }
+    
+    // Пытаемся определить через GeoIP базу (если установлена)
+    if (function_exists('geoip_country_code_by_name')) {
+        $code = @geoip_country_code_by_name($ip);
+        if ($code) return strtoupper($code);
+    }
+    
+    // Пытаемся через базу ip2location (если есть)
+    $geoipFile = __DIR__ . '/data/ip2location-lite.bin';
+    if (file_exists($geoipFile) && class_exists('IP2Location\\Database')) {
+        try {
+            $db = new IP2Location\Database($geoipFile, IP2Location\Database::FILE_MEMORY_CACHE);
+            $result = $db->lookup($ip, IP2Location\Database::ALL);
+            if (!empty($result['countryCode'])) {
+                return strtoupper($result['countryCode']);
+            }
+        } catch (\Exception $e) {
+            // Игнорируем ошибки GeoIP
+        }
+    }
+    
+    // Простая эвристика по диапазонам IP (очень примерно)
+    // Это запасной вариант, если ничего не установлено
+    $ipLong = ip2long($ip);
+    if ($ipLong !== false) {
+        // Примерные диапазоны для некоторых стран (для демонстрации)
+        // В продакшене используйте полноценную GeoIP базу
+        $ranges = [
+            'RU' => [[1840000000, 1850000000], [2016000000, 2020000000]],
+            'US' => [[1600000000, 1700000000], [3400000000, 3500000000]],
+            'DE' => [[1400000000, 1450000000]],
+            'CN' => [[1750000000, 1800000000]],
+        ];
+        foreach ($ranges as $country => $countryRanges) {
+            foreach ($countryRanges as $range) {
+                if ($ipLong >= $range[0] && $ipLong <= $range[1]) {
+                    return $country;
+                }
+            }
+        }
+    }
+    
+    return '';
 }
     
 function createPoll($pdo) {
@@ -355,8 +510,6 @@ function deleteItem($pdo, $type, $id) {
 }
 
 function pollStats($pdo, $pollId) {
-    header('Content-Type: application/json; charset=utf-8');
-    
     $ownerKey = $_GET["owner_key"] ?? "";
     if (!$ownerKey) { 
         http_response_code(403); 
@@ -388,20 +541,29 @@ function pollStats($pdo, $pollId) {
     
     $analytics = [];
     
-    $stmt = $pdo->prepare("SELECT COALESCE(device_type, 'unknown') as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid GROUP BY name ORDER BY count DESC");
+    // Browsers
+    $stmt = $pdo->prepare("SELECT COALESCE(browser_type, 'Other') as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid GROUP BY name ORDER BY count DESC");
     $stmt->execute([":pid" => $pollId]);
-    $devices = $stmt->fetchAll();
-    if ($devices) $analytics['devices'] = $devices;
+    $browsers = $stmt->fetchAll();
+    if ($browsers) $analytics['browsers'] = $browsers;
     
+    // Operating Systems
     $stmt = $pdo->prepare("SELECT COALESCE(os_type, 'Unknown') as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid GROUP BY name ORDER BY count DESC");
     $stmt->execute([":pid" => $pollId]);
     $osList = $stmt->fetchAll();
     if ($osList) $analytics['os'] = $osList;
     
-    $stmt = $pdo->prepare("SELECT COALESCE(NULLIF(utm_source, ''), 'direct') as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid GROUP BY name ORDER BY count DESC LIMIT 10");
+    // Devices
+    $stmt = $pdo->prepare("SELECT COALESCE(device_type, 'unknown') as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid GROUP BY name ORDER BY count DESC");
     $stmt->execute([":pid" => $pollId]);
-    $sources = $stmt->fetchAll();
-    if ($sources) $analytics['sources'] = $sources;
+    $devices = $stmt->fetchAll();
+    if ($devices) $analytics['devices'] = $devices;
+    
+    // Locations (Countries)
+    $stmt = $pdo->prepare("SELECT COALESCE(NULLIF(ip_country, ''), 'Unknown') as name, COUNT(*) as count FROM poll_votes pv WHERE pv.poll_id = :pid GROUP BY name ORDER BY count DESC LIMIT 15");
+    $stmt->execute([":pid" => $pollId]);
+    $locations = $stmt->fetchAll();
+    if ($locations) $analytics['locations'] = $locations;
     
     $result = [
         "poll" => $poll,

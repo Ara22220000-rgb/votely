@@ -101,21 +101,6 @@
                             </button>
                         </div>
                         <p class="share-hint">Отправьте эту ссылку участникам для голосования</p>
-                        
-                        <div style="margin-top: 16px;">
-                            <p class="share-hint" style="margin-bottom: 8px;">🔗 Примеры ссылок с источниками:</p>
-                            <div style="display: grid; gap: 8px;">
-                                <button class="share-copy-btn" onclick="copyShareUrl('telegram')" style="min-height: 40px; font-size: 14px;">
-                                    ✈️ Telegram
-                                </button>
-                                <button class="share-copy-btn" onclick="copyShareUrl('vk')" style="min-height: 40px; font-size: 14px;">
-                                    💙 ВКонтакте
-                                </button>
-                                <button class="share-copy-btn" onclick="copyShareUrl('website')" style="min-height: 40px; font-size: 14px;">
-                                    🌐 Сайт / Другое
-                                </button>
-                            </div>
-                        </div>
                     </div>
                     
                     <div class="share-box" style="margin-top: 16px; border-color: rgba(138, 92, 175, 0.3); background: linear-gradient(135deg, rgba(138, 92, 175, 0.1) 0%, rgba(138, 92, 175, 0.05) 100%);">
@@ -125,7 +110,7 @@
                                 <span class="copy-icon">📈</span> Смотреть статистику
                             </a>
                         </div>
-                        <p class="share-hint">Диаграммы по устройствам, ОС, источникам и кампаниям</p>
+                        <p class="share-hint">Диаграммы по устройствам, ОС и источникам</p>
                     </div>
                 </div>
             </section>

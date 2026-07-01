@@ -125,7 +125,7 @@
         </footer>
     </div>
 
-    <script src="scripts/main.js"></script>
+    <script src="scripts/main.js?v=<?php echo time(); ?>"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             initStatsPage();

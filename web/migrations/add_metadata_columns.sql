@@ -5,17 +5,21 @@
 ALTER TABLE poll_votes 
 ADD COLUMN IF NOT EXISTS user_agent TEXT,
 ADD COLUMN IF NOT EXISTS ip_address INET,
+ADD COLUMN IF NOT EXISTS ip_country VARCHAR(2) DEFAULT '',
 ADD COLUMN IF NOT EXISTS utm_source VARCHAR(255) DEFAULT '',
 ADD COLUMN IF NOT EXISTS utm_medium VARCHAR(255) DEFAULT '',
 ADD COLUMN IF NOT EXISTS utm_campaign VARCHAR(255) DEFAULT '',
 ADD COLUMN IF NOT EXISTS device_type VARCHAR(50) DEFAULT 'unknown',
-ADD COLUMN IF NOT EXISTS os_type VARCHAR(100) DEFAULT 'Unknown';
+ADD COLUMN IF NOT EXISTS os_type VARCHAR(100) DEFAULT 'Unknown',
+ADD COLUMN IF NOT EXISTS browser_type VARCHAR(100) DEFAULT 'Other';
 
 -- Add indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_poll_votes_utm_source ON poll_votes(utm_source);
 CREATE INDEX IF NOT EXISTS idx_poll_votes_utm_campaign ON poll_votes(utm_campaign);
 CREATE INDEX IF NOT EXISTS idx_poll_votes_device_type ON poll_votes(device_type);
 CREATE INDEX IF NOT EXISTS idx_poll_votes_os_type ON poll_votes(os_type);
+CREATE INDEX IF NOT EXISTS idx_poll_votes_browser_type ON poll_votes(browser_type);
+CREATE INDEX IF NOT EXISTS idx_poll_votes_ip_country ON poll_votes(ip_country);
 CREATE INDEX IF NOT EXISTS idx_poll_votes_poll_id ON poll_votes(poll_id);
 
 -- Add owner_key_hash to polls for stats access control

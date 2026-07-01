@@ -67,11 +67,25 @@ type (
 		Percent int    `json:"percent"`
 	}
 
+	AnalyticsItem struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	}
+
+	PollAnalytics struct {
+		Browsers   []AnalyticsItem `json:"browsers,omitempty"`
+		OS         []AnalyticsItem `json:"os,omitempty"`
+		Devices    []AnalyticsItem `json:"devices,omitempty"`
+		Locations  []AnalyticsItem `json:"locations,omitempty"`
+		Sources    []AnalyticsItem `json:"sources,omitempty"`
+	}
+
 	PollStats struct {
 		Poll        PollDetail      `json:"poll"`
 		Options     []OptionStats   `json:"options"`
 		TotalVotes  int             `json:"total_votes"`
 		Voters      []VoteAttribution `json:"voters"`
+		Analytics   PollAnalytics   `json:"analytics"`
 	}
 
 	TelegramUser struct {
@@ -522,7 +536,7 @@ func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, user
 	if err != nil {
 		return PollStats{}, err
 	}
-	stats := PollStats{Poll: poll, Options: make([]OptionStats, 0, len(poll.Options))}
+	stats := PollStats{Poll: poll, Options: make([]OptionStats, 0, len(poll.Options)), Analytics: PollAnalytics{}}
 	for _, option := range poll.Options {
 		stats.TotalVotes += option.Votes
 	}
@@ -534,7 +548,140 @@ func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, user
 		stats.Options = append(stats.Options, OptionStats{ID: option.ID, Text: option.Text, Votes: option.Votes, Percent: percent})
 	}
 
+	// Load analytics from traffic_events
 	rows, err := s.db.Query(ctx, `
+		SELECT 'browser' as type, COALESCE(NULLIF(split_part(split_part(user_agent, ' ', 1), '/', 1), ''), 'Other') as name, COUNT(*) as count
+		FROM traffic_events te
+		WHERE te.event_type = 'vote' AND te.poll_id = $1
+		GROUP BY type, name
+		ORDER BY count DESC`,
+		pollID,
+	)
+	if err != nil {
+		return PollStats{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemType, name string
+		var count int
+		if err := rows.Scan(&itemType, &name, &count); err != nil {
+			return PollStats{}, err
+		}
+		stats.Analytics.Browsers = append(stats.Analytics.Browsers, AnalyticsItem{Name: name, Count: count})
+	}
+	rows.Close()
+
+	// Load OS analytics
+	rows, err = s.db.Query(ctx, `
+		SELECT 'os' as type, 
+			CASE 
+				WHEN user_agent LIKE '%iPhone%' OR user_agent LIKE '%iPad%' THEN 'iOS'
+				WHEN user_agent LIKE '%Android%' THEN 'Android'
+				WHEN user_agent LIKE '%Windows%' THEN 'Windows'
+				WHEN user_agent LIKE '%Mac%' OR user_agent LIKE '%OS X%' THEN 'macOS'
+				WHEN user_agent LIKE '%Linux%' THEN 'Linux'
+				ELSE 'Other'
+			END as name, 
+			COUNT(*) as count
+		FROM traffic_events te
+		WHERE te.event_type = 'vote' AND te.poll_id = $1
+		GROUP BY type, name
+		ORDER BY count DESC`,
+		pollID,
+	)
+	if err != nil {
+		return PollStats{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemType, name string
+		var count int
+		if err := rows.Scan(&itemType, &name, &count); err != nil {
+			return PollStats{}, err
+		}
+		stats.Analytics.OS = append(stats.Analytics.OS, AnalyticsItem{Name: name, Count: count})
+	}
+	rows.Close()
+
+	// Load devices analytics
+	rows, err = s.db.Query(ctx, `
+		SELECT 'device' as type,
+			CASE
+				WHEN user_agent LIKE '%Mobile%' AND user_agent NOT LIKE '%iPad%' THEN 'mobile'
+				WHEN user_agent LIKE '%iPad%' OR user_agent LIKE '%Tablet%' OR user_agent LIKE '%Android%' THEN 'tablet'
+				ELSE 'desktop'
+			END as name,
+			COUNT(*) as count
+		FROM traffic_events te
+		WHERE te.event_type = 'vote' AND te.poll_id = $1
+		GROUP BY type, name
+		ORDER BY count DESC`,
+		pollID,
+	)
+	if err != nil {
+		return PollStats{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemType, name string
+		var count int
+		if err := rows.Scan(&itemType, &name, &count); err != nil {
+			return PollStats{}, err
+		}
+		stats.Analytics.Devices = append(stats.Analytics.Devices, AnalyticsItem{Name: name, Count: count})
+	}
+	rows.Close()
+
+	// Load locations analytics
+	rows, err = s.db.Query(ctx, `
+		SELECT 'location' as type, COALESCE(NULLIF(ip_country, ''), 'Unknown') as name, COUNT(*) as count
+		FROM traffic_events te
+		WHERE te.event_type = 'vote' AND te.poll_id = $1
+		GROUP BY type, name
+		ORDER BY count DESC
+		LIMIT 15`,
+		pollID,
+	)
+	if err != nil {
+		return PollStats{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemType, name string
+		var count int
+		if err := rows.Scan(&itemType, &name, &count); err != nil {
+			return PollStats{}, err
+		}
+		stats.Analytics.Locations = append(stats.Analytics.Locations, AnalyticsItem{Name: name, Count: count})
+	}
+	rows.Close()
+
+	// Load sources analytics
+	rows, err = s.db.Query(ctx, `
+		SELECT 'source' as type, COALESCE(NULLIF(utm_source, ''), 'direct') as name, COUNT(*) as count
+		FROM traffic_events te
+		WHERE te.event_type = 'vote' AND te.poll_id = $1
+		GROUP BY type, name
+		ORDER BY count DESC
+		LIMIT 10`,
+		pollID,
+	)
+	if err != nil {
+		return PollStats{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemType, name string
+		var count int
+		if err := rows.Scan(&itemType, &name, &count); err != nil {
+			return PollStats{}, err
+		}
+		stats.Analytics.Sources = append(stats.Analytics.Sources, AnalyticsItem{Name: name, Count: count})
+	}
+	rows.Close()
+
+	// Load voters
+	voterRows, voterErr := s.db.Query(ctx, `
 		SELECT coalesce(te.option_id::text, ''), coalesce(po.option_text, ''), te.ip_country, te.ip_geo_source,
 			te.utm_source, te.utm_campaign, te.user_agent, te.created_at::text
 		FROM traffic_events te
@@ -544,13 +691,13 @@ func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, user
 		LIMIT 100`,
 		pollID,
 	)
-	if err != nil {
-		return PollStats{}, err
+	if voterErr != nil {
+		return PollStats{}, voterErr
 	}
-	defer rows.Close()
-	for rows.Next() {
+	defer voterRows.Close()
+	for voterRows.Next() {
 		var item VoteAttribution
-		if err := rows.Scan(&item.OptionID, &item.OptionText, &item.Country, &item.GeoSource, &item.UTMSource, &item.UTMCampaign, &item.UserAgent, &item.CreatedAt); err != nil {
+		if err := voterRows.Scan(&item.OptionID, &item.OptionText, &item.Country, &item.GeoSource, &item.UTMSource, &item.UTMCampaign, &item.UserAgent, &item.CreatedAt); err != nil {
 			return PollStats{}, err
 		}
 		if poll.IsAnonymous {
@@ -558,7 +705,7 @@ func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, user
 		}
 		stats.Voters = append(stats.Voters, item)
 	}
-	return stats, rows.Err()
+	return stats, voterRows.Err()
 }
 
 func (s *Store) UpsertTelegramUser(ctx context.Context, user TelegramUser) error {

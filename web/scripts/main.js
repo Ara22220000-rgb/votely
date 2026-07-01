@@ -405,10 +405,10 @@ function renderPollView(container, data, id) {
         return;
     }
     
-    // Проверяем, есть ли уже голоса (значит показываем результаты)
-    const hasVotes = options.some(o => (o.votes || 0) > 0);
+    // Проверяем, голосовал ли этот пользователь (localStorage)
+    const hasVoted = localStorage.getItem('voted_poll_' + id);
     
-    if (hasVotes) {
+    if (hasVoted) {
         // Показываем результаты
         const totalVotes = options.reduce((sum, o) => sum + (o.votes || 0), 0);
         const resultsDiv = document.createElement('div');
@@ -470,9 +470,68 @@ function renderPollView(container, data, id) {
             try {
                 // Собираем UTM-метки из URL
                 const params = new URLSearchParams(window.location.search);
-                const utmSource = params.get('utm_source') || '';
+                let utmSource = params.get('utm_source') || '';
                 const utmMedium = params.get('utm_medium') || '';
-                const utmCampaign = params.get('utm_campaign') || '';
+                
+                // Если нет utm_source, определяем по Referer заголовку
+                if (!utmSource) {
+                    const referrer = document.referrer || '';
+                    
+                    // Проверяем домен в Referer
+                    if (referrer) {
+                        try {
+                            const refUrl = new URL(referrer);
+                            const host = refUrl.hostname.toLowerCase();
+                            
+                            // Социальные сети и платформы
+                            if (host.includes('t.me') || host.includes('telegram.org') || host.includes('telegram.me')) {
+                                utmSource = 'telegram';
+                            } else if (host.includes('vk.com') || host.includes('vkontakte.ru')) {
+                                utmSource = 'vk';
+                            } else if (host.includes('ok.ru') || host.includes('odnoklassniki')) {
+                                utmSource = 'ok';
+                            } else if (host.includes('twitter.com') || host.includes('x.com') || host.includes('twit')) {
+                                utmSource = 'twitter';
+                            } else if (host.includes('facebook.com') || host.includes('fb.com') || host.includes('m.facebook')) {
+                                utmSource = 'facebook';
+                            } else if (host.includes('instagram.com') || host.includes('instagr.am')) {
+                                utmSource = 'instagram';
+                            } else if (host.includes('tiktok.com') || host.includes('tiktokcdn')) {
+                                utmSource = 'tiktok';
+                            } else if (host.includes('youtube.com') || host.includes('youtu.be') || host.includes('youtube-nocookie')) {
+                                utmSource = 'youtube';
+                            } else if (host.includes('reddit.com') || host.includes('redd.it')) {
+                                utmSource = 'reddit';
+                            } else if (host.includes('linkedin.com') || host.includes('lnkd.in')) {
+                                utmSource = 'linkedin';
+                            } else if (host.includes('pinterest.com') || host.includes('pin.it')) {
+                                utmSource = 'pinterest';
+                            } else if (host.includes('snapchat.com') || host.includes('sc-snap')) {
+                                utmSource = 'snapchat';
+                            } else if (host.includes('discord.com') || host.includes('discordapp')) {
+                                utmSource = 'discord';
+                            } else if (host.includes('whatsapp.com') || host.includes('wa.me')) {
+                                utmSource = 'whatsapp';
+                            } else if (host.includes('google.') || host.includes('googleusercontent') || host.includes('g.co')) {
+                                utmSource = 'google';
+                            } else if (host.includes('yandex.') || host.includes('ya.ru')) {
+                                utmSource = 'yandex';
+                            } else if (host.includes('bing.com') || host.includes('msn.com')) {
+                                utmSource = 'bing';
+                            } else if (host.includes('duckduckgo.com')) {
+                                utmSource = 'duckduckgo';
+                            } else if (host.includes('mail.ru') || host.includes('mailru')) {
+                                utmSource = 'mailru';
+                            } else {
+                                utmSource = 'website';
+                            }
+                        } catch (err) {
+                            utmSource = 'direct';
+                        }
+                    } else {
+                        utmSource = 'direct';
+                    }
+                }
                 
                 const res = await apiJSON('/api/v1/polls/' + id + '/votes' + window.location.search, {
                     method: 'POST',
@@ -480,10 +539,11 @@ function renderPollView(container, data, id) {
                     body: JSON.stringify({ 
                         option_id: sel.value,
                         utm_source: utmSource,
-                        utm_medium: utmMedium,
-                        utm_campaign: utmCampaign
+                        utm_medium: utmMedium
                     })
                 });
+                // Запоминаем, что пользователь проголосовал
+                localStorage.setItem('voted_poll_' + id, sel.value);
                 renderPollView(container, res, id);
             } catch (err) {
                 showToast(err.message, 'error');
@@ -496,7 +556,7 @@ function renderPollView(container, data, id) {
         container.appendChild(form);
     }
 }
-
+    
 function renderQuizView(container, data) {
     const quizDiv = document.createElement('div');
     quizDiv.className = 'quiz-view';
@@ -762,9 +822,9 @@ function renderStats(content, data) {
     
     // Analytics sections with Pie Charts
     if (analytics) {
-        // Devices
-        if (analytics.devices && analytics.devices.length > 0) {
-            html += renderPieChartSection('📱 Устройства', analytics.devices, 'device');
+        // Browsers
+        if (analytics.browsers && analytics.browsers.length > 0) {
+            html += renderPieChartSection('🌐 Браузеры', analytics.browsers, 'browser');
         }
         
         // OS
@@ -772,9 +832,14 @@ function renderStats(content, data) {
             html += renderPieChartSection('💻 Операционные системы', analytics.os, 'os');
         }
         
-        // Sources
-        if (analytics.sources && analytics.sources.length > 0) {
-            html += renderPieChartSection('🔗 Источники', analytics.sources, 'source');
+        // Devices
+        if (analytics.devices && analytics.devices.length > 0) {
+            html += renderPieChartSection('📱 Устройства', analytics.devices, 'device');
+        }
+        
+        // Locations
+        if (analytics.locations && analytics.locations.length > 0) {
+            html += renderPieChartSection('🌍 География', analytics.locations, 'location');
         }
     }
         
@@ -845,6 +910,12 @@ function renderPieChartSection(title, items, type) {
 }
 
 function createPieSlice(startAngle, endAngle, color, index) {
+    // Обработка случая 100% (полный круг)
+    if (endAngle - startAngle >= 359.99) {
+        // Рисуем полный круг
+        return `<circle cx="50" cy="50" r="40" fill="${color}" stroke="#1a1c1e" stroke-width="1"/>`;
+    }
+    
     const x1 = 50 + 40 * Math.cos(Math.PI * startAngle / 180);
     const y1 = 50 + 40 * Math.sin(Math.PI * startAngle / 180);
     const x2 = 50 + 40 * Math.cos(Math.PI * endAngle / 180);
@@ -856,24 +927,18 @@ function createPieSlice(startAngle, endAngle, color, index) {
 }
 
 function getItemIcon(name, type) {
-    if (type === 'source') {
+    if (type === 'browser') {
         const icons = { 
-            'telegram': '✈️', 
-            'vk': '💙', 
-            'direct': '🔗', 
-            'google': '🔍', 
-            'twitter': '🐦',
-            'facebook': '📘',
-            'youtube': '▶️',
-            'instagram': '📷',
-            'website': '🌐'
+            'Chrome': '🌐', 
+            'Firefox': '🦊', 
+            'Safari': '🧭', 
+            'Edge': '🌀', 
+            'Opera': '🔴',
+            'Samsung Internet': '📱',
+            'Yandex': '🔴',
+            'Other': '❓'
         };
-        return icons[name.toLowerCase()] || '🔗';
-    }
-    
-    if (type === 'device') {
-        const icons = { 'mobile': '📱', 'tablet': '📟', 'desktop': '🖥️', 'unknown': '❓' };
-        return icons[name.toLowerCase()] || '📊';
+        return icons[name] || '🌐';
     }
     
     if (type === 'os') {
@@ -881,10 +946,28 @@ function getItemIcon(name, type) {
         return icons[name] || '💻';
     }
     
+    if (type === 'device') {
+        const icons = { 'desktop': '🖥️', 'mobile': '📱', 'tablet': '📟', 'unknown': '❓' };
+        return icons[name.toLowerCase()] || '🖥️';
+    }
+    
+    if (type === 'location') {
+        const countryIcons = {
+            'RU': '🇷🇺', 'US': '🇺🇸', 'GB': '🇬🇧', 'DE': '🇩🇪', 'FR': '🇫🇷',
+            'ES': '🇪🇸', 'IT': '🇮🇹', 'CN': '🇨🇳', 'JP': '🇯🇵', 'KR': '🇰🇷',
+            'IN': '🇮🇳', 'BR': '🇧🇷', 'CA': '🇨🇦', 'AU': '🇦🇺', 'UA': '🇺🇦',
+            'BY': '🇧🇾', 'KZ': '🇰🇿', 'UZ': '🇺🇿', 'TR': '🇹🇷', 'PL': '🇵🇱'
+        };
+        const code = name.toUpperCase().trim();
+        if (countryIcons[code]) return countryIcons[code];
+        if (code.length === 2) return '🌍';
+        return '🌐';
+    }
+    
     return '📊';
 }
 
-// Копирование ссылки с источником для get.php
+// Копирование ссылки для get.php
 function copyShareUrl(source) {
     const shareUrlInput = document.getElementById('share-url');
     if (!shareUrlInput) return;
@@ -894,7 +977,7 @@ function copyShareUrl(source) {
     const id = params.get('id');
     const type = params.get('type') || 'poll';
     
-    const shareUrl = `${baseUrl}?id=${id}&type=${type}&utm_source=${source}`;
+    const shareUrl = `${baseUrl}?id=${id}&type=${type}`;
     
     navigator.clipboard.writeText(shareUrl).then(() => {
         const btn = event.target.closest('button');
