@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админ-панель · Votely</title>
+    <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+    <div class="page">
+        <header class="site-header">
+            <nav class="nav" aria-label="Основная навигация">
+                <a class="brand" href="index.php" aria-label="Votely, главная">
+                    <img class="brand__logo" src="votely.svg" alt="">
+                    <span class="brand__name">Votely</span>
+                </a>
+                <div class="nav__middle">
+                    <a class="nav-link" href="index.php">На сайт</a>
+                    <span class="nav-link admin-green-text">Панель управления</span>
+                </div>
+                <div class="nav__right">
+                    <button class="nav-link" id="admin-logout">Выйти</button>
+                </div>
+            </nav>
+        </header>
+
+        <main class="creator">
+            <section class="creator__panel">
+                <div class="creator__header">
+                    <div>
+                        <p class="creator__eyebrow">Администрирование</p>
+                        <h1 class="creator__title">Панель управления</h1>
+                    </div>
+                </div>
+
+                <div class="creator-form__section admin-section-gap">
+                    <h2 class="creator-form__subtitle">Выполнить SQL-запрос</h2>
+                    <div class="field admin-field-gap">
+                        <textarea class="field__control field__control--textarea sql-textarea" id="sql-query" placeholder="SELECT * FROM polls LIMIT 5;" rows="5"></textarea>
+                    </div>
+                    <div class="creator-form__actions admin-field-gap">
+                        <button class="primary-button sql-btn" id="sql-run-btn">Выполнить</button>
+                        <p class="form-status" id="sql-status" role="status" aria-live="polite"></p>
+                    </div>
+                    <div id="sql-results" class="admin-results"></div>
+                </div>
+
+                <div class="creator-form__section admin-section-gap">
+                    <h2 class="creator-form__subtitle">Управление контентом</h2>
+                    <div class="creator__switch admin-switch-gap">
+                        <button class="creator__switch-link is-active" id="btn-list-polls">Опросы</button>
+                        <button class="creator__switch-link" id="btn-list-quizzes">Викторины</button>
+                    </div>
+                    <div class="stack admin-list-gap" id="admin-content-list"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="scripts/main.js"></script>
+</body>
+</html>

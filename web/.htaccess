@@ -1,0 +1,10 @@
+RewriteEngine On
+
+# Все запросы к /api/v1/* направляем в api.php
+RewriteCond %{REQUEST_URI} ^/api/
+RewriteRule ^(.*)$ api.php [L,QSA]
+
+# Если файл существует, отдаём его
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]

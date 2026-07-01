@@ -11,31 +11,31 @@
     <div class="page">
         <header class="site-header">
             <nav class="nav" aria-label="Основная навигация">
-                <a class="brand" href="index.html" aria-label="Votely, главная">
+                <a class="brand" href="index.php" aria-label="Votely, главная">
                     <img class="brand__logo" src="votely.svg" alt="">
                     <span class="brand__name">Votely</span>
                 </a>
 
                 <div class="nav__middle">
-                    <a class="nav-link" href="index.html">Главная</a>
+                    <a class="nav-link" href="index.php">Главная</a>
+                    <a class="nav-link" href="browse.php?type=poll">Опросы</a>
 
                     <div class="dropdown" data-dropdown>
                         <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
                             Создать
                         </button>
                         <div class="dropdown__menu" role="menu">
-                            <a class="dropdown__item" href="create.html?type=poll" role="menuitem">Создать опрос</a>
-                            <a class="dropdown__item" href="create.html?type=quiz" role="menuitem">Создать викторину</a>
+                            <a class="dropdown__item" href="create.php?type=poll" role="menuitem">Создать опрос</a>
+                            <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
                         </div>
                     </div>
-                    <a class="nav-link" href="browse.html?type=poll">Опросы</a>
                 </div>
                 <div class="searchdiv">
-                    <form class="search-form" action="browse.html" role="search">
-                        <input name="q" class="search" type="text" placeholder="Поиск" aria-label="Поиск">
+                    <form class="search-form" action="browse.php" role="search">
+                        <input name="q" class="search" type="text" placeholder="Поиск" aria-label="Найти опрос">
                         <button class="search-button" type="submit" aria-label="Найти">
                             <svg class="search-button__icon" viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M10.8 4.4a6.4 6.4 0 1 0 0 12.8 6.4 6.4 0 0 0 0-12.8ZM2.8 10.8a8 8 0 1 1 14.1 5.2l3.7 3.7a1.1 1.1 0 0 1-1.6 1.6l-3.7-3.7A8 8 0 0 1 2.8 10.8Z"/>
+                                <path d="M10.8 4.4a6.4 6.4 0 1 0 0 12.8 6.4 6.4 0 0 0 0-12.8ZM2.8 10.8a8 8 0 0 1 14.1 5.2l3.7 3.7a1.1 1.1 0 0 1-1.6 1.6l-3.7-3.7A8 8 0 0 1 2.8 10.8Z"/>
                             </svg>
                         </button>
                     </form>
@@ -47,8 +47,8 @@
                             Войти
                         </button>
                         <div class="dropdown__menu" role="menu">
-                            <a class="dropdown__item" href="/api/v1/auth/telegram/config" role="menuitem" data-auth-action="register">Регистрация</a>
-                            <a class="dropdown__item" href="/api/v1/auth/telegram/config" role="menuitem" data-auth-action="login">Авторизация</a>
+                            <a class="dropdown__item" href="#" role="menuitem">Регистрация</a>
+                            <a class="dropdown__item" href="#" role="menuitem">Авторизация</a>
                         </div>
                     </div>
                 </div>
@@ -66,11 +66,11 @@
                             Создать
                         </button>
                         <div class="dropdown__menu" role="menu">
-                            <a class="dropdown__item" href="create.html?type=poll" role="menuitem">Создать опрос</a>
-                            <a class="dropdown__item" href="create.html?type=quiz" role="menuitem">Создать викторину</a>
+                            <a class="dropdown__item" href="create.php?type=poll" role="menuitem">Создать опрос</a>
+                            <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
                         </div>
                     </div>
-                    <a class="browse-cta" href="browse.html?type=poll">Смотреть опросы</a>
+                    <a class="browse-cta" href="browse.php?type=poll">Смотреть опросы</a>
                 </div>
             </section>
         </main>
@@ -79,7 +79,7 @@
             <div class="footer__inner">
                 <div class="footer__top">
                     <div class="footer__brand">
-                        <a class="footer__logo" href="index.html" aria-label="Votely, главная">
+                        <a class="footer__logo" href="index.php" aria-label="Votely, главная">
                             <img class="footer__logo-img" src="votely.svg" alt="">
                             <span>Votely</span>
                         </a>
@@ -87,10 +87,10 @@
                     </div>
 
                     <nav class="footer__links" aria-label="Ссылки в подвале">
-                        <a class="footer__link" href="index.html">Главная</a>
-                        <a class="footer__link" href="create.html?type=poll">Создать опрос</a>
-                        <a class="footer__link" href="browse.html?type=poll">Опросы</a>
-                        <a class="footer__link" href="create.html?type=quiz">Создать викторину</a>
+                        <a class="footer__link" href="index.php">Главная</a>
+                        <a class="footer__link" href="create.php?type=poll">Создать опрос</a>
+                        <a class="footer__link" href="browse.php?type=poll">Опросы</a>
+                        <a class="footer__link" href="create.php?type=quiz">Создать викторину</a>
                     </nav>
 
                     <div class="footer__contact">
@@ -102,7 +102,6 @@
                 </div>
 
                 <p class="footer__bottom">© 2026 Votely</p>
-                <p class="footer__bottom_right">Версия: 1.8.1</p>
             </div>
         </footer>
     </div>

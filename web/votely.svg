@@ -1,0 +1,50 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="purple" x1="22" y1="17" x2="96" y2="91" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7B4DFF"/>
+      <stop offset="1" stop-color="#5735D8"/>
+    </linearGradient>
+
+    <linearGradient id="orange" x1="93" y1="31" x2="116" y2="95" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD968"/>
+      <stop offset="1" stop-color="#FFA73A"/>
+    </linearGradient>
+
+    <linearGradient id="green" x1="75" y1="77" x2="75" y2="106" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#69D97B"/>
+      <stop offset="1" stop-color="#39B967"/>
+    </linearGradient>
+
+    <linearGradient id="blue" x1="95" y1="64" x2="95" y2="106" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#55B7FF"/>
+      <stop offset="1" stop-color="#2C8CEB"/>
+    </linearGradient>
+
+    <filter id="shadow" x="8" y="8" width="112" height="112" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#000000" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <!-- Задняя оранжевая плашка -->
+  <rect x="84" y="31" width="24" height="67" rx="12" fill="url(#orange)" opacity="0.95"/>
+
+  <!-- Основной фиолетовый чат -->
+  <path
+    filter="url(#shadow)"
+    d="M27 19C19.8 19 14 24.8 14 32V73C14 80.2 19.8 86 27 86H35V102.5C35 105.8 38.9 107.5 41.3 105.3L62 86H83C90.2 86 96 80.2 96 73V32C96 24.8 90.2 19 83 19H27Z"
+    fill="url(#purple)"
+  />
+
+  <!-- Столбцы диаграммы -->
+  <rect x="70" y="74" width="17" height="31" rx="5" fill="url(#green)"/>
+  <rect x="89" y="62" width="17" height="43" rx="5" fill="url(#blue)"/>
+
+  <!-- Белая галочка -->
+  <path
+    d="M38 51.5L53.5 67L78.5 40"
+    stroke="white"
+    stroke-width="9"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

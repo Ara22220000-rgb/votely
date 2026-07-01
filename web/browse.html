@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Votely</title>
+    <title>Просмотр · Votely</title>
     <link rel="icon" href="votely.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles/main.css">
 </head>
@@ -15,22 +15,18 @@
                     <img class="brand__logo" src="votely.svg" alt="">
                     <span class="brand__name">Votely</span>
                 </a>
-
                 <div class="nav__middle">
                     <a class="nav-link" href="index.html">Главная</a>
-
                     <div class="dropdown" data-dropdown>
-                        <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
-                            Создать
-                        </button>
+                        <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">Создать</button>
                         <div class="dropdown__menu" role="menu">
                             <a class="dropdown__item" href="create.html?type=poll" role="menuitem">Создать опрос</a>
                             <a class="dropdown__item" href="create.html?type=quiz" role="menuitem">Создать викторину</a>
                         </div>
                     </div>
-                    <a class="nav-link" href="browse.html?type=poll">Опросы</a>
+                    <a class="nav-link is-active" href="browse.html?type=poll">Опросы</a>
                 </div>
-                <div class="searchdiv">
+                <div>
                     <form class="search-form" action="browse.html" role="search">
                         <input name="q" class="search" type="text" placeholder="Поиск" aria-label="Поиск">
                         <button class="search-button" type="submit" aria-label="Найти">
@@ -40,12 +36,9 @@
                         </button>
                     </form>
                 </div>
-
                 <div class="nav__right">
                     <div class="dropdown dropdown--right" data-dropdown>
-                        <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
-                            Войти
-                        </button>
+                        <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">Войти</button>
                         <div class="dropdown__menu" role="menu">
                             <a class="dropdown__item" href="/api/v1/auth/telegram/config" role="menuitem" data-auth-action="register">Регистрация</a>
                             <a class="dropdown__item" href="/api/v1/auth/telegram/config" role="menuitem" data-auth-action="login">Авторизация</a>
@@ -55,23 +48,19 @@
             </nav>
         </header>
 
-        <main class="hero">
-            <section class="hero__content" aria-labelledby="hero-title">
-                <img class="hero__logo" src="votely.svg" alt="">
-                <h1 class="hero__title" id="hero-title">Место, где можно быстро устроить голосование.</h1>
-
-                <div class="hero__actions">
-                    <div class="dropdown create-cta" data-dropdown>
-                        <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
-                            Создать
-                        </button>
-                        <div class="dropdown__menu" role="menu">
-                            <a class="dropdown__item" href="create.html?type=poll" role="menuitem">Создать опрос</a>
-                            <a class="dropdown__item" href="create.html?type=quiz" role="menuitem">Создать викторину</a>
-                        </div>
+        <main class="creator" data-browse-root>
+            <section class="creator__panel">
+                <div class="creator__header">
+                    <div>
+                        <p class="creator__eyebrow">Просмотр</p>
+                        <h1 class="creator__title" data-browse-title>Опросы</h1>
                     </div>
-                    <a class="browse-cta" href="browse.html?type=poll">Смотреть опросы</a>
+                    <div class="creator__switch" aria-label="Тип списка">
+                        <a class="creator__switch-link" href="browse.html?type=poll" data-type-link="poll">Опросы</a>
+                        <a class="creator__switch-link" href="browse.html?type=quiz" data-type-link="quiz">Викторины</a>
+                    </div>
                 </div>
+                <div class="cards-grid" data-list></div>
             </section>
         </main>
 
@@ -96,7 +85,7 @@
                     <div class="footer__contact">
                         <a class="footer__email" href="mailto:help@votely.local">help@votely.local</a>
                         <div class="footer__social-row" aria-label="Социальные сети">
-                            <a class="footer__social" href="https://t.me/votely_net" aria-label="Telegram">TG</a>
+                            <a class="footer__social" href="#" aria-label="Telegram">TG</a>
                         </div>
                     </div>
                 </div>
@@ -106,7 +95,6 @@
             </div>
         </footer>
     </div>
-
     <script src="scripts/main.js"></script>
 </body>
 </html>
