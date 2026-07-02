@@ -19,12 +19,12 @@
                     <span class="nav-link admin-green-text">Панель управления</span>
                 </div>
                 <div class="nav__right">
-                    <button class="nav-link" id="admin-logout">Выйти</button>
+                    <button class="nav-link" type="button" data-admin-logout hidden>Выйти</button>
                 </div>
             </nav>
         </header>
 
-        <main class="creator">
+        <main class="creator" data-admin-root>
             <section class="creator__panel">
                 <div class="creator__header">
                     <div>
@@ -33,25 +33,22 @@
                     </div>
                 </div>
 
-                <div class="creator-form__section admin-section-gap">
-                    <h2 class="creator-form__subtitle">Выполнить SQL-запрос</h2>
-                    <div class="field admin-field-gap">
-                        <textarea class="field__control field__control--textarea sql-textarea" id="sql-query" placeholder="SELECT * FROM polls LIMIT 5;" rows="5"></textarea>
-                    </div>
-                    <div class="creator-form__actions admin-field-gap">
-                        <button class="primary-button sql-btn" id="sql-run-btn">Выполнить</button>
-                        <p class="form-status" id="sql-status" role="status" aria-live="polite"></p>
-                    </div>
-                    <div id="sql-results" class="admin-results"></div>
+                <div class="creator-form admin-login" data-admin-login>
+                    <p class="form-status" data-admin-status role="status" aria-live="polite">Проверяем Telegram-доступ...</p>
                 </div>
 
-                <div class="creator-form__section admin-section-gap">
-                    <h2 class="creator-form__subtitle">Управление контентом</h2>
-                    <div class="creator__switch admin-switch-gap">
-                        <button class="creator__switch-link is-active" id="btn-list-polls">Опросы</button>
-                        <button class="creator__switch-link" id="btn-list-quizzes">Викторины</button>
+                <div class="admin-panel" data-admin-panel hidden>
+                    <div class="admin-summary" data-admin-summary></div>
+
+                    <div class="creator-form__section admin-section-gap">
+                        <h2 class="creator-form__subtitle">Управление контентом</h2>
+                        <p class="creator-form__hint">Доступ разрешен только указанным Telegram-аккаунтам. Удаление защищено серверной сессией и CSRF-токеном.</p>
                     </div>
-                    <div class="stack admin-list-gap" id="admin-content-list"></div>
+                    <div class="creator__switch admin-switch-gap">
+                        <button class="creator__switch-link is-active" type="button" data-admin-type="polls">Опросы</button>
+                        <button class="creator__switch-link" type="button" data-admin-type="quizzes">Викторины</button>
+                    </div>
+                    <div class="stack admin-list-gap" data-admin-list></div>
                 </div>
             </section>
         </main>

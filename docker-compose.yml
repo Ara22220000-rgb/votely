@@ -1,7 +1,53 @@
 services:
+  app:
+    build: .
+    ports:
+      - "8080:80"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      go-api:
+        condition: service_started
+    restart: unless-stopped
+    environment:
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DB=votely
+      - PG_USER=votely
+      - PG_PASSWORD=votely
+      - HASH_SECRET=${HASH_SECRET:-dev-secret-key-for-local-development-only}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-}
+      - GO_API_URL=http://go-api:8081
+
+  go-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.go
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DB=votely
+      - PG_USER=votely
+      - PG_PASSWORD=votely
+      - HASH_SECRET=${HASH_SECRET:-dev-secret-key-for-local-development-only}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-}
+      - APP_ADDR=:8081
+      - MIGRATIONS_DIR=/migrations
+    expose:
+      - "8081"
+
   postgres:
     image: postgres:16-alpine
-    container_name: votely-postgres
     environment:
       POSTGRES_DB: votely
       POSTGRES_USER: votely
@@ -10,32 +56,13 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/001_init.sql
+      - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U votely -d votely"]
       interval: 5s
-      timeout: 5s
-      retries: 5
-
-  php:
-    build:
-      context: .
-      dockerfile: docker/php/Dockerfile
-    container_name: votely-php
-    volumes:
-      - ./web:/var/www/html
-    ports:
-      - "8000:80"
-    environment:
-      PG_HOST: postgres
-      PG_PORT: 5432
-      PG_DB: votely
-      PG_USER: votely
-      PG_PASSWORD: votely
-      HASH_SECRET: your-super-secret-key-min-32-chars
-    depends_on:
-      postgres:
-        condition: service_healthy
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
 volumes:
   postgres_data:

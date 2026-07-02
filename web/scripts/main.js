@@ -1,11 +1,17 @@
-﻿
 document.querySelectorAll('[data-dropdown]').forEach((dropdown) => {
     const trigger = dropdown.querySelector('.dropdown__trigger');
- 
-    const setExpanded = (expanded) => { trigger?.setAttribute('aria-expanded', String(expanded)); };
+    const setExpanded = (expanded) => trigger?.setAttribute('aria-expanded', String(expanded));
     dropdown.addEventListener('mouseenter', () => setExpanded(true));
     dropdown.addEventListener('mouseleave', () => setExpanded(false));
+    trigger?.addEventListener('click', () => {
+        const expanded = trigger.getAttribute('aria-expanded') === 'true';
+        setExpanded(!expanded);
+        dropdown.classList.toggle('is-open', !expanded);
+    });
 });
+
+let authState = { authenticated: false, user: null };
+let authReady = Promise.resolve(authState);
 
 function initToasts() {
     if (document.querySelector('[data-toast-root]')) return;
@@ -22,32 +28,22 @@ function showToast(message, kind = 'error') {
     toast.className = 'toast toast--' + kind;
     toast.textContent = message;
     root.append(toast);
+    window.setTimeout(() => toast.classList.add('is-leaving'), 3600);
     window.setTimeout(() => toast.remove(), 4200);
 }
 
 async function apiJSON(url, options = {}) {
-    const response = await fetch(url, options);
-    const text = await response.text();
-    
-    if (!text) {
-        console.error('Пустой ответ от API:', url, 'Status:', response.status);
-        throw new Error('Сервер не ответил. Попробуйте позже.');
-    }
-    
-    // Проверяем, начинается ли ответ с '<' (HTML)
-    if (text.trim().startsWith('<')) {
-        console.error('API вернул HTML вместо JSON:', text.substring(0, 500));
-        throw new Error('Сервер вернул некорректный ответ. Попробуйте позже.');
-    }
-    
-    try {
-        const data = JSON.parse(text);
-        if (!response.ok) throw new Error(data.message || 'Ошибка запроса');
-        return data;
-    } catch (e) {
-        console.error('Ошибка парсинга JSON:', e.message, 'Ответ:', text.substring(0, 200));
-        throw e;
-    }
+    const response = await fetch(url, {
+        credentials: 'same-origin',
+        ...options,
+        headers: {
+            ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+            ...(options.headers || {})
+        }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Ошибка запроса');
+    return data;
 }
 
 function setStatus(el, msg, kind) {
@@ -56,69 +52,351 @@ function setStatus(el, msg, kind) {
     el.className = 'form-status ' + (kind ? 'is-' + kind : '');
 }
 
-// Проверка авторизации и обновление навигации
-async function initAuthNav() {
-    const navRight = document.querySelector('.nav__right');
-    if (!navRight) return;
-    
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}
+
+function apiCollection(type) {
+    return type === 'quiz' ? 'quizzes' : 'polls';
+}
+
+async function initMyPollsPage(root) {
+    const list = root.querySelector('[data-list]');
     try {
-        const res = await fetch('/api/v1/auth/me');
-        const data = await res.json();
-
-        if (data.authenticated && data.user) {
-            // Пользователь авторизован — показываем имя и кнопку "Выйти"
-            const userName = data.user.name || data.user.email || 'Профиль';
-            navRight.innerHTML = `
-                <div class="dropdown dropdown--right" data-dropdown>
-                    <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">${escapeHtml(userName)}</button>
-                    <div class="dropdown__menu" role="menu">
-                        <a class="dropdown__item" href="create.php?type=poll" role="menuitem">Создать опрос</a>
-                        <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
-                        <button class="dropdown__item" type="button" id="logout-btn" role="menuitem">Выйти</button>
-                    </div>
-                </div>
-            `;
-
-            // Инициализируем dropdown заново
-            navRight.querySelectorAll('[data-dropdown]').forEach((dropdown) => {
-                const trigger = dropdown.querySelector('.dropdown__trigger');
-                const setExpanded = (expanded) => { trigger?.setAttribute('aria-expanded', String(expanded)); };
-                dropdown.addEventListener('mouseenter', () => setExpanded(true));
-                dropdown.addEventListener('mouseleave', () => setExpanded(false));
-            });
-
-            // Обработчик выхода
-            const logoutBtn = document.getElementById('logout-btn');
-            if (logoutBtn) {
-                logoutBtn.addEventListener('click', async () => {
-                    try {
-                        await fetch('/api/v1/auth/logout', { method: 'POST' });
-                    } catch (e) { /* игнорируем */ }
-                    localStorage.removeItem('votely_user');
-                    window.location.href = 'index.php';
-                });
-            }
+        const state = await authReady;
+        if (!state.authenticated) {
+            renderMessage(list, 'Войдите через Telegram, чтобы увидеть свои опросы.', true);
+            openLoginFromConfig();
+            return;
         }
-    } catch (e) {
-        // Не авторизован — оставляем кнопку "Войти"
+        const data = await apiJSON('/api/v1/me/polls');
+        renderMyPolls(list, data.items || []);
+    } catch (error) {
+        renderMessage(list, error.message, true);
     }
+}
+
+function renderMyPolls(container, items) {
+    container.replaceChildren();
+    if (!items.length) {
+        renderMessage(container, 'У вас пока нет опросов.', false);
+        return;
+    }
+    items.forEach((item) => {
+        const card = document.createElement('article');
+        card.className = 'card card--poll';
+        card.innerHTML = `
+            <h2>${escapeHtml(item.title)}</h2>
+            <p>${escapeHtml(item.description || 'Опрос без описания')}</p>
+            <div class="card__meta">
+                <span>${item.total_votes || 0} голосов</span>
+                <a href="stats.php?id=${encodeURIComponent(item.id)}">Статистика</a>
+                <a href="view.php?type=poll&id=${encodeURIComponent(item.id)}">Открыть</a>
+            </div>
+        `;
+        container.append(card);
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     initToasts();
-    initAuthNav();
+    authReady = checkAuthStatus();
+
     const createForm = document.querySelector('[data-create-form]');
     const browseRoot = document.querySelector('[data-browse-root]');
+    const myPollsRoot = document.querySelector('[data-my-polls-root]');
     const detailRoot = document.querySelector('[data-detail-root]');
-    const voteContent = document.getElementById('vote-content');
-    const statsContent = document.getElementById('stats-content');
+    const adminRoot = document.querySelector('[data-admin-root]');
 
     if (createForm) initCreateForm(createForm);
     if (browseRoot) initBrowsePage(browseRoot);
+    if (myPollsRoot) initMyPollsPage(myPollsRoot);
     if (detailRoot) initDetailPage(detailRoot);
-    if (voteContent) initGetPage();
-    if (statsContent) initStatsPage();
+    if (adminRoot) initAdminPanel(adminRoot);
+    initTelegramAuthUI();
+    initAuthGuards();
 });
+
+async function checkAuthStatus() {
+    try {
+        const data = await apiJSON('/api/v1/auth/me');
+        authState = { authenticated: !!data.authenticated, user: data.user || null, isAdmin: !!data.is_admin };
+        renderAuthControls();
+        return authState;
+    } catch (e) {
+        authState = { authenticated: false, user: null, isAdmin: false };
+        renderAuthControls();
+        return authState;
+    }
+}
+
+function renderAuthControls() {
+    document.querySelectorAll('.nav__right').forEach((root) => {
+        if (authState.authenticated) {
+            root.innerHTML = `
+                <div class="auth-profile dropdown dropdown--right is-auth" data-auth-profile>
+                    <button class="auth-profile__trigger dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
+                        ${userAvatar(authState.user)}
+                        <span>${escapeHtml(userDisplayName(authState.user))}</span>
+                    </button>
+                    <div class="dropdown__menu auth-profile__menu" role="menu">
+                        ${authState.isAdmin ? '<a class="dropdown__item" href="admin.php" role="menuitem">Админ панель</a>' : ''}
+                        <a class="dropdown__item" href="my-polls.php" role="menuitem">Мои опросы</a>
+                        <button class="dropdown__item auth-logout" type="button" role="menuitem" data-auth-logout>Выйти</button>
+                    </div>
+                </div>
+            `;
+        } else {
+            root.innerHTML = `
+                <button class="auth-login-button" type="button" data-auth-action="login">
+                    ${lastAuthAvatar()}
+                    <span>Войти</span>
+                </button>
+            `;
+        }
+    });
+    document.querySelectorAll('[data-auth-profile]').forEach((dropdown) => {
+        const trigger = dropdown.querySelector('.dropdown__trigger');
+        trigger?.addEventListener('click', () => {
+            const expanded = trigger.getAttribute('aria-expanded') === 'true';
+            trigger.setAttribute('aria-expanded', String(!expanded));
+            dropdown.classList.toggle('is-open', !expanded);
+        });
+    });
+    initTelegramAuthUI();
+    initLogoutUI();
+}
+
+function userDisplayName(user) {
+    const raw = user?.username || user?.first_name || 'Профиль';
+    return String(raw).replace(/^@/, '').slice(0, 10);
+}
+
+function userAvatar(user) {
+    const initial = userDisplayName(user).slice(0, 1).toUpperCase() || 'U';
+    const photo = user?.photo_url || localStorage.getItem('votely:last-avatar') || '';
+    if (photo) {
+        return `<img class="auth-profile__avatar" src="${escapeHtml(photo)}" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="auth-profile__avatar auth-profile__avatar--fallback" hidden>${escapeHtml(initial)}</span>`;
+    }
+    return `<span class="auth-profile__avatar auth-profile__avatar--fallback">${escapeHtml(initial)}</span>`;
+}
+
+function persistLastAuthUser(user) {
+    if (!user) return;
+    const photo = user.photo_url || '';
+    const name = user.username || user.first_name || '';
+    if (photo) localStorage.setItem('votely:last-avatar', photo);
+    if (name) localStorage.setItem('votely:last-name', name);
+}
+
+function lastAuthAvatar() {
+    const photo = localStorage.getItem('votely:last-avatar') || '';
+    const name = localStorage.getItem('votely:last-name') || '';
+    if (photo) {
+        return `<img class="auth-login-button__avatar" src="${escapeHtml(photo)}" alt="">`;
+    }
+    if (name) {
+        return `<span class="auth-login-button__avatar auth-profile__avatar--fallback">${escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
+    }
+    return '';
+}
+
+function initTelegramAuthUI() {
+    document.querySelectorAll('[data-auth-action]').forEach((link) => {
+        if (link.dataset.authBound === '1') return;
+        link.dataset.authBound = '1';
+        link.addEventListener('click', async (event) => {
+            event.preventDefault();
+            try {
+                const config = await apiJSON('/api/v1/auth/telegram/config');
+                if (!config.enabled || !config.bot_username) {
+                    showToast('Telegram OAuth не настроен');
+                    return;
+                }
+                openTelegramAuthModal(config.bot_username);
+            } catch (error) {
+                showToast(error.message);
+            }
+        });
+    });
+}
+
+function initLogoutUI() {
+    document.querySelectorAll('[data-auth-logout]').forEach((button) => {
+        if (button.dataset.logoutBound === '1') return;
+        button.dataset.logoutBound = '1';
+        button.addEventListener('click', async () => {
+            await apiJSON('/api/v1/auth/logout', { method: 'POST' });
+            persistLastAuthUser(authState.user);
+            authState = { authenticated: false, user: null, isAdmin: false };
+            authReady = Promise.resolve(authState);
+            renderAuthControls();
+            showToast('Вы вышли', 'success');
+        });
+    });
+}
+
+function initAuthGuards() {
+    document.addEventListener('click', async (event) => {
+        const createLink = event.target.closest('a[href^="create.php"]');
+        if (!createLink) return;
+        const state = await authReady;
+        if (!state.authenticated) {
+            event.preventDefault();
+            showToast('Войдите через Telegram, чтобы создать опрос.');
+            openLoginFromConfig();
+        }
+    });
+}
+
+async function openLoginFromConfig() {
+    const config = await apiJSON('/api/v1/auth/telegram/config');
+    if (!config.enabled || !config.bot_username) {
+        showToast('Telegram OAuth не настроен');
+        return;
+    }
+    openTelegramAuthModal(config.bot_username);
+}
+
+function openTelegramAuthModal(botUsername) {
+    document.querySelector('[data-auth-modal]')?.remove();
+    const modal = document.createElement('div');
+    modal.className = 'auth-modal';
+    modal.dataset.authModal = '';
+    modal.innerHTML = `
+        <div class="auth-modal__panel" role="dialog" aria-modal="true" aria-labelledby="telegram-auth-title">
+            <button class="auth-modal__close" type="button" aria-label="Закрыть">×</button>
+            <h2 id="telegram-auth-title">Войти через Telegram</h2>
+            <p>Подтвердите вход в окне Telegram.</p>
+            <p class="auth-modal__status" data-auth-widget-status>Загружаем Telegram...</p>
+            <div class="auth-modal__widget" data-telegram-widget></div>
+        </div>
+    `;
+    modal.querySelector('.auth-modal__close').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) modal.remove();
+    });
+    document.body.append(modal);
+
+    window.onTelegramAuth = async (user) => {
+        try {
+            const savedUser = await apiJSON('/api/v1/auth/telegram', {
+                method: 'POST',
+                body: JSON.stringify(user)
+            });
+            persistLastAuthUser({ ...user, ...savedUser });
+            modal.remove();
+            authReady = checkAuthStatus();
+            await authReady;
+            showToast('Вход выполнен', 'success');
+        } catch (error) {
+            showToast(error.message);
+        }
+    };
+
+    renderTelegramLoginFrame(modal, botUsername);
+}
+
+function renderTelegramLoginFrame(modal, botUsername) {
+    const widget = modal.querySelector('[data-telegram-widget]');
+    const status = modal.querySelector('[data-auth-widget-status]');
+    const origin = window.location.origin || `${window.location.protocol}//${window.location.hostname}`;
+    const iframe = document.createElement('iframe');
+    const frameURL = new URL(`https://oauth.telegram.org/embed/${encodeURIComponent(botUsername)}`);
+    frameURL.searchParams.set('origin', origin);
+    frameURL.searchParams.set('return_to', window.location.href);
+    frameURL.searchParams.set('size', 'large');
+    frameURL.searchParams.set('userpic', 'false');
+    frameURL.searchParams.set('request_access', 'write');
+
+    iframe.id = 'telegram-login-' + botUsername.replace(/[^a-z0-9_]/gi, '-');
+    iframe.src = frameURL.toString();
+    iframe.width = '238';
+    iframe.height = '40';
+    iframe.setAttribute('frameborder', '0');
+    iframe.setAttribute('scrolling', 'no');
+    iframe.style.overflow = 'hidden';
+    iframe.style.colorScheme = 'light dark';
+    iframe.style.border = 'none';
+    iframe.style.background = 'transparent';
+
+    function postToTelegram(event, data = {}) {
+        iframe.contentWindow?.postMessage(JSON.stringify({ event, frame: iframe.id, ...data }), 'https://oauth.telegram.org');
+    }
+
+    function requestTelegramInfo() {
+        postToTelegram('get_info', { _cb: 'votely-auth-info' });
+    }
+
+    function frameCoords() {
+        const rect = iframe.getBoundingClientRect();
+        const docEl = document.documentElement;
+        return {
+            frameTop: rect.top,
+            frameBottom: rect.bottom,
+            frameLeft: rect.left,
+            frameRight: rect.right,
+            frameWidth: rect.width,
+            frameHeight: rect.height,
+            scrollTop: window.pageYOffset,
+            scrollLeft: window.pageXOffset,
+            clientWidth: docEl.clientWidth,
+            clientHeight: docEl.clientHeight
+        };
+    }
+
+    function handleTelegramMessage(event) {
+        if (event.source !== iframe.contentWindow || event.origin !== 'https://oauth.telegram.org') return;
+        let data = {};
+        try {
+            data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        } catch (e) {
+            return;
+        }
+        const authData = data.auth_data || data.authData || data.result || data.user || data.value?.auth_data || data.value?.authData || data.value?.result || data.value?.user;
+        if (data.event === 'resize') {
+            if (data.height) iframe.style.height = data.height + 'px';
+            if (data.width) iframe.style.width = data.width + 'px';
+        } else if (data.event === 'ready') {
+            status.textContent = '';
+            postToTelegram('focus', { has_focus: document.hasFocus() });
+            postToTelegram('visible', { frame: iframe.id });
+            requestTelegramInfo();
+        } else if (data.event === 'get_coords') {
+            postToTelegram('callback', { _cb: data._cb, value: frameCoords() });
+        } else if (data.event === 'auth_user' || data.event === 'auth_result' || authData?.hash) {
+            window.removeEventListener('message', handleTelegramMessage);
+            window.onTelegramAuth(authData);
+        } else if (data.event === 'unauthorized') {
+            status.textContent = 'Telegram не подтвердил вход. Попробуйте еще раз.';
+            status.classList.add('is-error');
+        }
+    }
+
+    window.addEventListener('message', handleTelegramMessage);
+    iframe.addEventListener('load', () => {
+        const infoTimer = window.setInterval(() => {
+            if (!modal.isConnected || !iframe.isConnected) {
+                window.clearInterval(infoTimer);
+                return;
+            }
+            requestTelegramInfo();
+        }, 1200);
+        window.setTimeout(() => {
+            if (modal.isConnected && iframe.isConnected && status.textContent.trim()) {
+                status.textContent = 'Если кнопка Telegram не появилась, проверьте домен в BotFather и обновите страницу.';
+                status.classList.add('is-error');
+            }
+        }, 4500);
+    });
+    widget.replaceChildren(iframe);
+}
 
 function initCreateForm(form) {
     const params = new URLSearchParams(window.location.search);
@@ -128,94 +406,65 @@ function initCreateForm(form) {
     const optionsList = form.querySelector('[data-options-list]');
     const questionsList = form.querySelector('[data-questions-list]');
     const status = form.querySelector('[data-form-status]');
-    const badgeEl = form.closest('.creator__panel')?.querySelector('[data-type-badge]');
-    const switchLinks = document.querySelectorAll('.creator__switch-link');
 
+    document.querySelectorAll('[data-type-link]').forEach((link) => {
+        link.classList.toggle('is-active', link.dataset.typeLink === type);
+    });
     if (pollFields) pollFields.hidden = type !== 'poll';
     if (quizFields) quizFields.hidden = type !== 'quiz';
-
-    // Обновляем активный переключатель
-    switchLinks.forEach(link => {
-        link.classList.remove('is-active');
-        if (link.dataset.typeLink === type) {
-            link.classList.add('is-active');
-        }
-    });
-    
-    // Обновляем заголовок и бейдж
-    updateCreateTitle(badgeEl, type);
+    const titleEl = document.querySelector('#creator-title');
+    if (titleEl) titleEl.textContent = type === 'quiz' ? 'Создать викторину' : 'Создать опрос';
 
     addDefaultRows(type, optionsList, questionsList);
-
     form.querySelector('[data-add-option]')?.addEventListener('click', () => addOption(optionsList));
     form.querySelector('[data-add-answer]')?.addEventListener('click', () => {
         const answers = form.querySelector('[data-answers]');
         if (answers) answers.append(createAnswerRow(false));
     });
-
     form.addEventListener('click', (e) => {
         if (e.target.closest('[data-remove]')) e.target.closest('[data-row]')?.remove();
     });
-
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = form.querySelector('[type="submit"]');
         btn.disabled = true;
+        setStatus(status, '', '');
         try {
+            const state = await authReady;
+            if (!state.authenticated) {
+                setStatus(status, 'Войдите через Telegram, чтобы создать.', 'error');
+                await openLoginFromConfig();
+                return;
+            }
             const result = await apiJSON(type === 'quiz' ? '/api/v1/quizzes' : '/api/v1/polls', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(type === 'quiz' ? collectQuizPayload(form) : collectPollPayload(form))
             });
-            const id = result.id;
-            const ownerKey = result.owner_key || '';
-            if (id) {
-                // Сохраняем owner_key в localStorage для будущего доступа
-                localStorage.setItem('poll_owner_key_' + id, ownerKey);
-                const storageKey = type === 'quiz' ? 'quiz_owner_key_' : 'poll_owner_key_';
-                localStorage.setItem(storageKey + id, ownerKey);
-                // Перенаправляем на get.php с флагом создателя
-                window.location.href = 'get.php?id=' + id + '&type=' + type + '&creator=1';
-            }
+            const owner = result.owner_key ? '&owner_key=' + encodeURIComponent(result.owner_key) : '';
+            window.location.href = 'view.php?type=' + type + '&id=' + encodeURIComponent(result.id) + owner;
         } catch (err) {
             setStatus(status, err.message, 'error');
-        } finally { btn.disabled = false; }
+        } finally {
+            btn.disabled = false;
+        }
     });
-}
-
-function updateCreateTitle(badgeEl, type) {
-    const isQuiz = type === 'quiz';
-    const icon = isQuiz ? '🧠' : '📊';
-    const text = isQuiz ? 'Создание викторины' : 'Создание опроса';
-    const titleEl = document.querySelector('#creator-title');
-    
-    if (titleEl) {
-        titleEl.innerHTML = `<span class="type-icon">${icon}</span><span class="type-text">${isQuiz ? 'Создать викторину' : 'Создать опрос'}</span>`;
-    }
-    
-    if (badgeEl) {
-        badgeEl.innerHTML = `<span class="badge-icon">${icon}</span><span class="badge-text">${text}</span>`;
-        badgeEl.className = 'creator-type-badge ' + (isQuiz ? 'is-quiz' : 'is-poll');
-    }
 }
 
 function addDefaultRows(type, optionsList, questionsList) {
     if (type === 'quiz') {
-        if (questionsList) addSingleQuizQuestion(questionsList);
-    } else if (optionsList) {
+        if (questionsList && !questionsList.children.length) addSingleQuizQuestion(questionsList);
+    } else if (optionsList && !optionsList.children.length) {
         addOption(optionsList);
         addOption(optionsList);
     }
 }
 
 function addOption(list) {
+    if (!list) return;
     const row = document.createElement('div');
     row.className = 'option-row';
     row.dataset.row = 'option';
-    row.style.display = 'flex';
-    row.style.gap = '8px';
-    row.style.marginBottom = '8px';
-    row.innerHTML = '<input class="field__control" name="option" placeholder="Вариант ответа" required style="flex:1"><button class="icon-button" type="button" data-remove style="flex:none">×</button>';
+    row.innerHTML = '<input class="field__control" name="option" placeholder="Вариант ответа" required maxlength="300"><button class="icon-button" type="button" data-remove aria-label="Удалить">×</button>';
     list.appendChild(row);
 }
 
@@ -226,17 +475,16 @@ function addSingleQuizQuestion(list) {
     sec.innerHTML = `
         <label class="field">
             <span class="field__label">Вопрос викторины</span>
-            <input class="field__control" name="question" placeholder="Например: Какая планета самая большая?" required>
+            <input class="field__control" name="question" placeholder="Например: Какая планета самая большая?" required maxlength="500">
         </label>
-        <div class="creator-form__section-head" style="margin-top:20px">
+        <div class="creator-form__section-head">
             <h3 class="creator-form__subtitle">Варианты ответов</h3>
-            <p style="font-size:12px; color:var(--text-muted)">Отметьте галочкой правильный вариант</p>
+            <p class="creator-form__hint">Отметьте правильный вариант</p>
         </div>
         <div class="quiz-question__answers stack" data-answers></div>
     `;
     const answers = sec.querySelector('[data-answers]');
-    answers.appendChild(createAnswerRow(true));
-    answers.appendChild(createAnswerRow(false));
+    answers.append(createAnswerRow(true), createAnswerRow(false));
     list.appendChild(sec);
 }
 
@@ -244,14 +492,10 @@ function createAnswerRow(checked) {
     const row = document.createElement('div');
     row.className = 'answer-row';
     row.dataset.row = 'answer';
-    row.style.display = 'flex';
-    row.style.alignItems = 'center';
-    row.style.gap = '12px';
-    row.style.marginBottom = '8px';
     row.innerHTML = `
         <input class="correct-check" type="checkbox" ${checked ? 'checked' : ''} title="Это правильный ответ">
-        <input class="field__control" name="answer" placeholder="Вариант ответа" required style="flex:1">
-        <button class="icon-button" type="button" data-remove>×</button>
+        <input class="field__control" name="answer" placeholder="Вариант ответа" required maxlength="300">
+        <button class="icon-button" type="button" data-remove aria-label="Удалить">×</button>
     `;
     return row;
 }
@@ -260,7 +504,7 @@ function collectPollPayload(form) {
     return {
         title: form.elements.title.value,
         description: form.elements.description.value,
-        options: Array.from(form.querySelectorAll('[name="option"]')).map(i => i.value)
+        options: Array.from(form.querySelectorAll('[name="option"]')).map((input) => input.value)
     };
 }
 
@@ -269,9 +513,9 @@ function collectQuizPayload(form) {
         title: form.elements.title.value,
         description: form.elements.description.value,
         question: form.querySelector('[name="question"]').value,
-        answers: Array.from(form.querySelectorAll('.answer-row')).map(r => ({
-            text: r.querySelector('[name="answer"]').value,
-            is_correct: r.querySelector('.correct-check').checked
+        answers: Array.from(form.querySelectorAll('.answer-row')).map((row) => ({
+            text: row.querySelector('[name="answer"]').value,
+            is_correct: row.querySelector('.correct-check').checked
         }))
     };
 }
@@ -279,1179 +523,508 @@ function collectQuizPayload(form) {
 async function initBrowsePage(root) {
     const params = new URLSearchParams(window.location.search);
     const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
-    const query = params.get('q') || '';
     const list = root.querySelector('[data-list]');
-    const titleEl = root.querySelector('[data-browse-title]');
-    const badgeEl = root.querySelector('[data-type-badge]');
-    const switchLinks = root.querySelectorAll('.creator__switch-link');
-    
-    if (!list) {
-        console.error('Не найден элемент [data-list]');
-        return;
-    }
-    
-    // Обновляем активный переключатель
-    switchLinks.forEach(link => {
-        link.classList.remove('is-active');
-        if (link.dataset.typeLink === type) {
-            link.classList.add('is-active');
-        }
+    const title = root.querySelector('[data-browse-title]');
+    if (title) title.textContent = type === 'quiz' ? 'Викторины' : 'Все опросы';
+    document.querySelectorAll('[data-type-link]').forEach((link) => {
+        link.classList.toggle('is-active', link.dataset.typeLink === type);
     });
-    
-    // Обновляем заголовок и бейдж
-    updateBrowseTitle(titleEl, badgeEl, type);
-    
-    // Заполняем поле поиска
-    const searchInput = document.querySelector('.search-form input[name="q"]');
-    if (searchInput) {
-        searchInput.value = query;
-    }
-    
-    // Если есть поиск, показываем это в бейдже
-    if (query) {
-        updateSearchBadge(badgeEl, query, type);
-    }
-    
     try {
-        // Исправляем множественное число: quiz -> quizzes, poll -> polls
-        const plural = type === 'quiz' ? 'quizzes' : 'polls';
-        const url = '/api/v1/' + plural + (query ? '?q=' + encodeURIComponent(query) : '');
-        const data = await apiJSON(url);
-        renderCards(list, data.items || [], type, query);
+        const query = params.get('q') ? '?q=' + encodeURIComponent(params.get('q')) : '';
+        const data = await apiJSON('/api/v1/' + apiCollection(type) + query);
+        renderCards(list, data.items || [], type);
     } catch (e) {
-        console.error('Ошибка загрузки:', e);
-        list.textContent = e.message;
-    }
-}
-    
-function updateSearchBadge(badgeEl, query, type) {
-    if (!badgeEl) return;
-    const isQuiz = type === 'quiz';
-    const icon = isQuiz ? '🧠' : '📊';
-    badgeEl.innerHTML = `<span class="badge-icon">${icon}</span><span class="badge-text">Поиск: "${escapeHtml(query)}"</span>`;
-    badgeEl.className = 'browse-type-badge is-search';
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function updateBrowseTitle(titleEl, badgeEl, type) {
-    const isQuiz = type === 'quiz';
-    const icon = isQuiz ? '🧠' : '📊';
-    const text = isQuiz ? 'Викторины' : 'Опросы';
-    const badgeText = isQuiz ? 'Показаны викторины' : 'Показаны опросы';
-    
-    if (titleEl) {
-        titleEl.innerHTML = `<span class="type-icon">${icon}</span><span class="type-text">${text}</span>`;
-    }
-    
-    if (badgeEl) {
-        badgeEl.innerHTML = `<span class="badge-icon">${icon}</span><span class="badge-text">${badgeText}</span>`;
-        badgeEl.className = 'browse-type-badge ' + (isQuiz ? 'is-quiz' : 'is-poll');
-    }
-    
-    // Обновляем форму поиска
-    updateSearchForm(type);
-}
-
-function updateSearchForm(type) {
-    const searchForm = document.querySelector('.search-form');
-    const typeInput = searchForm?.querySelector('input[name="type"]');
-    const searchInput = searchForm?.querySelector('input[name="q"]');
-    
-    if (typeInput) {
-        typeInput.value = type;
-    }
-    
-    if (searchInput) {
-        searchInput.placeholder = type === 'quiz' ? 'Поиск викторин...' : 'Поиск опросов...';
+        renderMessage(list, e.message, true);
     }
 }
 
-function renderCards(list, items, type, query = '') {
-    if (!list) return;
-    list.innerHTML = '';
-    if (!items || !Array.isArray(items)) {
-        list.textContent = 'Нет данных';
+function renderCards(list, items, type) {
+    list.replaceChildren();
+    if (!items.length) {
+        renderMessage(list, 'Пока ничего нет.', false);
         return;
     }
-    
-    const isQuiz = type === 'quiz';
-    const icon = isQuiz ? '🧠' : '📊';
-    const typeLabel = isQuiz ? 'Викторина' : 'Опрос';
-    
-    if (items.length === 0) {
-        list.innerHTML = `
-            <div class="viewer-empty">
-                <div class="viewer-empty-icon">🔍</div>
-                <p>Ничего не найдено по запросу "${escapeHtml(query)}"</p>
-            </div>
+    items.forEach((item) => {
+        const card = document.createElement('a');
+        card.className = 'content-card';
+        card.href = 'view.php?type=' + type + '&id=' + encodeURIComponent(item.id);
+        card.innerHTML = `
+            <h2>${escapeHtml(item.title)}</h2>
+            <p>${escapeHtml(item.description || (type === 'quiz' ? 'Викторина' : 'Опрос'))}</p>
+            <span>${type === 'quiz' ? 'Открыть викторину' : 'Открыть опрос'}</span>
         `;
-        return;
-    }
-    
-    items.forEach(item => {
-        const a = document.createElement('a');
-        a.className = 'content-card';
-        a.href = 'view.php?type=' + type + '&id=' + item.id;
-        a.dataset.type = type;
-        a.innerHTML = `
-            <div class="card-type-badge">${icon} ${typeLabel}</div>
-            <h2>${item.title || ''}</h2>
-            <p>${item.description || ''}</p>
-        `;
-        list.appendChild(a);
+        list.append(card);
     });
 }
-    
+
 async function initDetailPage(root) {
     const params = new URLSearchParams(window.location.search);
-    const type = params.get('type');
-    const id = params.get('id');
+    const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
+    const id = params.get('id') || '';
+    const ownerKey = params.get('owner_key') || '';
     const container = root.querySelector('[data-detail]');
-    if (!type || !id) {
-        container.textContent = 'Не указан тип или ID';
-        return;
-    }
     try {
-        // Исправляем множественное число: quiz -> quizzes, poll -> polls
-        const plural = type === 'quiz' ? 'quizzes' : 'polls';
-        const url = '/api/v1/' + plural + '/' + id;
-        const data = await apiJSON(url);
-        renderDetail(container, data, type, id);
-    } catch (e) {
-        console.error('initDetailPage error:', e);
-        container.textContent = e.message;
-    }
-}
-    
-function renderDetail(container, data, type, id) {
-    console.log('renderDetail:', { data, type, id });
-    if (!data) {
-        container.textContent = 'Нет данных';
-        return;
-    }
-    container.innerHTML = `
-        <h1 class="viewer__title">${data.title || ''}</h1>
-        <p class="viewer__description">${data.description || ''}</p>
-        <div class="viewer__content"></div>
-    `;
-    const content = container.querySelector('.viewer__content');
-        if (type === 'quiz') {
-            renderQuizView(content, data, data.id || id);
-        } else {
-            renderPollView(content, data, id);
-        }
-}
-    
-function renderPollView(container, data, id) {
-    const options = data.options || [];
-    
-    if (options.length === 0) {
-        container.innerHTML = '<div class="viewer-empty"><div class="viewer-empty-icon">📊</div><p>Варианты ответов не найдены</p></div>';
-        return;
-    }
-    
-    // Проверяем, голосовал ли этот пользователь (localStorage)
-    const hasVoted = localStorage.getItem('voted_poll_' + id);
-    
-    if (hasVoted) {
-        // Показываем результаты
-        const totalVotes = options.reduce((sum, o) => sum + (o.votes || 0), 0);
-        const resultsDiv = document.createElement('div');
-        resultsDiv.className = 'poll-results';
-        
-        options.forEach(o => {
-            const votes = o.votes || 0;
-            const percent = totalVotes > 0 ? Math.round(votes / totalVotes * 100) : 0;
-            
-            const optionDiv = document.createElement('div');
-            optionDiv.className = 'result-option';
-            optionDiv.innerHTML = `
-                <div class="result-bar" style="width: ${percent}%"></div>
-                <div class="result-content">
-                    <span>${o.text}</span>
-                    <span class="result-votes">${votes} гол.</span>
-                    <span class="result-percent">${percent}%</span>
-                </div>
-            `;
-            resultsDiv.appendChild(optionDiv);
-        });
-        
-        container.innerHTML = '';
-        container.appendChild(resultsDiv);
-    } else {
-        // Показываем форму для голосования
-        const form = document.createElement('form');
-        form.className = 'poll-view';
-        
-        const optionsDiv = document.createElement('div');
-        optionsDiv.className = 'poll-options';
-        
-        options.forEach(o => {
-            const lbl = document.createElement('label');
-            lbl.className = 'poll-option';
-            lbl.innerHTML = `
-                <input type="radio" name="opt" value="${o.id}">
-                <span>${o.text}</span>
-            `;
-            optionsDiv.appendChild(lbl);
-        });
-        
-        const btn = document.createElement('button');
-        btn.className = 'poll-vote-btn';
-        btn.type = 'submit';
-        btn.textContent = 'Голосовать';
-        
-        form.append(optionsDiv, btn);
-        
-        form.onsubmit = async (e) => {
-            e.preventDefault();
-            const sel = form.querySelector('input:checked');
-            if (!sel) {
-                showToast('Выберите вариант ответа', 'error');
-                return;
-            }
-            btn.disabled = true;
-            btn.textContent = 'Отправка...';
-            try {
-                // Собираем UTM-метки из URL
-                const params = new URLSearchParams(window.location.search);
-                let utmSource = params.get('utm_source') || '';
-                const utmMedium = params.get('utm_medium') || '';
-                const shareLinkId = params.get('share_link_id') || localStorage.getItem('share_link_id_' + id) || '';
-                
-                // Если нет utm_source, определяем по Referer заголовку
-                if (!utmSource) {
-                    const referrer = document.referrer || '';
-                    
-                    // Проверяем домен в Referer
-                    if (referrer) {
-                        try {
-                            const refUrl = new URL(referrer);
-                            const host = refUrl.hostname.toLowerCase();
-                            
-                            // Социальные сети и платформы
-                            if (host.includes('t.me') || host.includes('telegram.org') || host.includes('telegram.me')) {
-                                utmSource = 'telegram';
-                            } else if (host.includes('vk.com') || host.includes('vkontakte.ru')) {
-                                utmSource = 'vk';
-                            } else if (host.includes('ok.ru') || host.includes('odnoklassniki')) {
-                                utmSource = 'ok';
-                            } else if (host.includes('twitter.com') || host.includes('x.com') || host.includes('twit')) {
-                                utmSource = 'twitter';
-                            } else if (host.includes('facebook.com') || host.includes('fb.com') || host.includes('m.facebook')) {
-                                utmSource = 'facebook';
-                            } else if (host.includes('instagram.com') || host.includes('instagr.am')) {
-                                utmSource = 'instagram';
-                            } else if (host.includes('tiktok.com') || host.includes('tiktokcdn')) {
-                                utmSource = 'tiktok';
-                            } else if (host.includes('youtube.com') || host.includes('youtu.be') || host.includes('youtube-nocookie')) {
-                                utmSource = 'youtube';
-                            } else if (host.includes('reddit.com') || host.includes('redd.it')) {
-                                utmSource = 'reddit';
-                            } else if (host.includes('linkedin.com') || host.includes('lnkd.in')) {
-                                utmSource = 'linkedin';
-                            } else if (host.includes('pinterest.com') || host.includes('pin.it')) {
-                                utmSource = 'pinterest';
-                            } else if (host.includes('snapchat.com') || host.includes('sc-snap')) {
-                                utmSource = 'snapchat';
-                            } else if (host.includes('discord.com') || host.includes('discordapp')) {
-                                utmSource = 'discord';
-                            } else if (host.includes('whatsapp.com') || host.includes('wa.me')) {
-                                utmSource = 'whatsapp';
-                            } else if (host.includes('google.') || host.includes('googleusercontent') || host.includes('g.co')) {
-                                utmSource = 'google';
-                            } else if (host.includes('yandex.') || host.includes('ya.ru')) {
-                                utmSource = 'yandex';
-                            } else if (host.includes('bing.com') || host.includes('msn.com')) {
-                                utmSource = 'bing';
-                            } else if (host.includes('duckduckgo.com')) {
-                                utmSource = 'duckduckgo';
-                            } else if (host.includes('mail.ru') || host.includes('mailru')) {
-                                utmSource = 'mailru';
-                            } else {
-                                utmSource = 'website';
-                            }
-                        } catch (err) {
-                            utmSource = 'direct';
-                        }
-                    } else {
-                        utmSource = 'direct';
-                    }
-                }
-                
-                const res = await apiJSON('/api/v1/polls/' + id + '/votes' + window.location.search, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        option_id: sel.value,
-                        utm_source: utmSource,
-                        utm_medium: utmMedium,
-                        share_link_id: shareLinkId || null
-                    })
-                });
-                // Запоминаем, что пользователь проголосовал
-                localStorage.setItem('voted_poll_' + id, sel.value);
-                renderPollView(container, res, id);
-            } catch (err) {
-                showToast(err.message, 'error');
-                btn.disabled = false;
-                btn.textContent = 'Голосовать';
-            }
-        };
-        
-        container.innerHTML = '';
-        container.appendChild(form);
+        const data = await apiJSON('/api/v1/' + apiCollection(type) + '/' + encodeURIComponent(id));
+        renderDetail(container, data, type, id, ownerKey);
+    } catch (error) {
+        renderMessage(container, error.message, true);
     }
 }
 
-function renderQuizView(container, data, quizId) {
-    const quizDiv = document.createElement('div');
-    quizDiv.className = 'quiz-view';
-    
-    // Вопрос
-    const questionDiv = document.createElement('div');
-    questionDiv.className = 'quiz-question-text';
-    questionDiv.textContent = data.question || 'Вопрос викторины';
-    
-    // Ответы
-    const answersDiv = document.createElement('div');
-    answersDiv.className = 'quiz-answers';
-    const answers = data.answers || [];
-    
-    // Находим ID вопроса из данных (если есть)
-    const questionId = data.question_id || '';
-    
-    answers.forEach((a, i) => {
-        const lbl = document.createElement('label');
-        lbl.className = 'quiz-answer-option';
-        lbl.dataset.correct = a.is_correct;
-        lbl.dataset.answerId = a.id || '';
-        lbl.innerHTML = `
-            <input type="radio" name="ans" value="${i}">
-            <span>${a.text}</span>
+function renderDetail(container, data, type, id, ownerKey = '') {
+    container.replaceChildren();
+    const title = document.createElement('h1');
+    title.className = 'viewer__title';
+    title.textContent = data.title;
+    const desc = document.createElement('p');
+    desc.className = 'viewer__description';
+    desc.textContent = data.description || '';
+    const content = document.createElement('div');
+    content.className = 'viewer__content';
+    container.append(title, desc, content);
+
+    if (type === 'poll' && ownerKey) {
+        renderOwnerStats(container, data, id, ownerKey);
+    } else if (type === 'quiz') {
+        renderQuizView(content, data);
+    } else {
+        renderPollView(content, data, id);
+    }
+}
+
+async function renderOwnerStats(container, poll, id, ownerKey) {
+    const stats = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/stats?owner_key=' + encodeURIComponent(ownerKey));
+    container.replaceChildren();
+    const header = document.createElement('div');
+    header.className = 'stats-header';
+    header.innerHTML = `
+        <div>
+            <p class="creator__eyebrow">Статистика владельца</p>
+            <h1 class="viewer__title">${escapeHtml(poll.title)}</h1>
+            <p class="viewer__description">${escapeHtml(poll.description || 'Опрос без описания')}</p>
+        </div>
+        <div class="metric-box"><span>${stats.total_votes || 0}</span><small>голосов</small></div>
+    `;
+
+    const chartSection = document.createElement('section');
+    chartSection.className = 'stats-chart-section';
+    const totalVotes = stats.total_votes || 0;
+    const pieChart = document.createElement('div');
+    pieChart.className = 'pie-chart-large';
+    if (totalVotes > 0) {
+        pieChart.append(buildPieSvg(stats.options || []));
+    } else {
+        pieChart.innerHTML = '<p class="stats-empty">Голосов пока нет</p>';
+    }
+    const legend = document.createElement('div');
+    legend.className = 'stats-legend';
+    (stats.options || []).forEach((option, index) => {
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = `
+            <div class="legend-item__header">
+                <span class="legend-swatch" style="background:${chartColor(index)}"></span>
+                <span class="legend-text">${escapeHtml(option.text)}</span>
+            </div>
+            <div class="legend-item__stats">
+                <strong>${option.votes}</strong>
+                <span class="legend-percent">${option.percent}%</span>
+            </div>
+            <div class="legend-bar"><div class="legend-bar__fill" style="width:${option.percent}%"></div></div>
         `;
-        answersDiv.appendChild(lbl);
+        legend.append(item);
     });
-    
-    // Кнопка
+    chartSection.append(pieChart, legend);
+    const meta = document.createElement('div');
+    meta.className = 'stats-meta';
+    meta.append(
+        metric('Статус', stats.poll?.is_closed ? 'Завершен' : 'Активен'),
+        metric('Анонимность', stats.poll?.is_anonymous ? 'Включена' : 'Открытая'),
+        metric('Страны', stats.poll?.allowed_countries?.length ? stats.poll.allowed_countries.join(', ') : 'Все')
+    );
+    container.append(header, chartSection, meta);
+}
+
+async function initStatsPage() {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('id') || '';
+    const ownerKey = params.get('owner_key') || '';
+    const title = document.querySelector('#stats-title');
+    const content = document.querySelector('#stats-content');
+    if (!id || !content) return;
+    try {
+        const poll = await apiJSON('/api/v1/polls/' + encodeURIComponent(id));
+        const stats = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/stats?owner_key=' + encodeURIComponent(ownerKey));
+        if (title) title.textContent = poll.title || 'Статистика';
+        const holder = document.createElement('div');
+        await renderStatsBlock(holder, poll, stats);
+        content.replaceChildren(...holder.childNodes);
+    } catch (error) {
+        renderMessage(content, error.message, true);
+    }
+}
+
+async function renderStatsBlock(container, poll, stats) {
+    const header = document.createElement('div');
+    header.className = 'stats-header';
+    header.innerHTML = `
+        <div>
+            <p class="creator__eyebrow">Статистика владельца</p>
+            <h1 class="viewer__title">${escapeHtml(poll.title)}</h1>
+            <p class="viewer__description">${escapeHtml(poll.description || 'Опрос без описания')}</p>
+        </div>
+        <div class="metric-box"><span>${stats.total_votes || 0}</span><small>голосов</small></div>
+    `;
+    const chartSection = document.createElement('section');
+    chartSection.className = 'stats-chart-section';
+    const totalVotes = stats.total_votes || 0;
+    const pieChart = document.createElement('div');
+    pieChart.className = 'pie-chart-large';
+    if (totalVotes > 0) {
+        pieChart.append(buildPieSvg(stats.options || []));
+    } else {
+        pieChart.innerHTML = '<p class="stats-empty">Голосов пока нет</p>';
+    }
+    const legend = document.createElement('div');
+    legend.className = 'stats-legend';
+    (stats.options || []).forEach((option, index) => {
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = `
+            <div class="legend-item__header">
+                <span class="legend-swatch" style="background:${chartColor(index)}"></span>
+                <span class="legend-text">${escapeHtml(option.text)}</span>
+            </div>
+            <div class="legend-item__stats">
+                <strong>${option.votes}</strong>
+                <span class="legend-percent">${option.percent}%</span>
+            </div>
+            <div class="legend-bar"><div class="legend-bar__fill" style="width:${option.percent}%"></div></div>
+        `;
+        legend.append(item);
+    });
+    chartSection.append(pieChart, legend);
+    const meta = document.createElement('div');
+    meta.className = 'stats-meta';
+    meta.append(
+        metric('Статус', stats.poll?.is_closed ? 'Завершен' : 'Активен'),
+        metric('Анонимность', stats.poll?.is_anonymous ? 'Включена' : 'Открытая'),
+        metric('Страны', stats.poll?.allowed_countries?.length ? stats.poll.allowed_countries.join(', ') : 'Все')
+    );
+    container.replaceChildren(header, chartSection, meta);
+}
+
+function renderPollView(container, data, id) {
+    const form = document.createElement('form');
+    form.className = 'vote-form';
+    const list = document.createElement('div');
+    list.className = 'answer-list';
+    const options = data.options || [];
+    const selectedOptionID = data.selected_option_id || '';
+    const totalVotes = options.reduce((sum, option) => sum + (option.votes || 0), 0);
+    options.forEach((option) => {
+        const label = document.createElement('label');
+        label.className = 'vote-option';
+        const isSelected = option.id === selectedOptionID;
+        label.classList.toggle('is-user-selected', isSelected);
+        const percent = totalVotes ? Math.round(((option.votes || 0) / totalVotes) * 100) : 0;
+        label.innerHTML = `
+            <input type="radio" name="opt" value="${escapeHtml(option.id)}" ${isSelected ? 'checked' : ''} ${selectedOptionID ? 'disabled' : ''}>
+            <span class="vote-option__body">
+                <span class="vote-option__top">
+                    <span class="vote-option__text">${escapeHtml(option.text)}</span>
+                    <span class="vote-count">${isSelected ? 'Ваш выбор · ' : ''}${option.votes || 0} · ${percent}%</span>
+                </span>
+                <span class="vote-result-bar" aria-label="Заполнено ${percent}%">
+                    <span class="vote-result-bar__fill" style="--target:${percent}%"></span>
+                    <span class="vote-result-bar__label">${percent}%</span>
+                </span>
+            </span>
+        `;
+        list.append(label);
+    });
     const btn = document.createElement('button');
     btn.className = 'primary-button';
-    btn.textContent = 'Проверить';
-    btn.style.marginTop = '12px';
-    
-    // Feedback
-    const feedback = document.createElement('div');
-    feedback.className = 'quiz-feedback';
-    feedback.style.display = 'none';
-    
-    quizDiv.append(questionDiv, answersDiv, btn, feedback);
-    
-    btn.onclick = async () => {
-        const sel = quizDiv.querySelector('input:checked');
-        if (!sel) {
-            showToast('Выберите вариант ответа', 'error');
-            return;
-        }
-        
-        const selectedLabel = sel.closest('.quiz-answer-option');
-        const isCorrect = selectedLabel.dataset.correct === 'true';
-        const answerId = selectedLabel.dataset.answerId || '';
-        
-        // Отправляем статистику на сервер
-        if (quizId && questionId) {
-            try {
-                const params = new URLSearchParams(window.location.search);
-                const shareLinkId = params.get('share_link_id') || localStorage.getItem('share_link_id_' + quizId) || '';
-                await apiJSON('/api/v1/quizzes/' + quizId + '/attempt' + window.location.search, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        question_id: questionId,
-                        answer_id: answerId || null,
-                        utm_source: params.get('utm_source') || '',
-                        utm_medium: params.get('utm_medium') || '',
-                        share_link_id: shareLinkId || null
-                    })
-                });
-            } catch (err) {
-                console.error('Не удалось отправить статистику:', err);
-            }
-        }
-        
-        // Показываем результат
-        feedback.style.display = 'block';
-        feedback.className = 'quiz-feedback ' + (isCorrect ? 'quiz-feedback--correct' : 'quiz-feedback--wrong');
-        feedback.textContent = isCorrect ? '✅ Верно!' : '❌ Неверно';
-        
-        // Подсвечиваем варианты
-        quizDiv.querySelectorAll('.quiz-answer-option').forEach(l => {
-            const input = l.querySelector('input');
-            input.disabled = true;
-            
-            if (l.dataset.correct === 'true') {
-                l.classList.add('is-correct');
-            }
-            if (l === selectedLabel && !isCorrect) {
-                l.classList.add('is-wrong');
-            }
-        });
-        
+    btn.textContent = selectedOptionID ? 'Голос учтен' : 'Голосовать';
+    btn.disabled = !!selectedOptionID;
+    if (!options.length) {
+        renderMessage(list, 'Варианты ответов не найдены', true);
         btn.disabled = true;
-        btn.textContent = 'Готово';
-    };
-    
-    container.innerHTML = '';
-    container.appendChild(quizDiv);
-}
-
-// Инициализация страницы голосования по уникальной ссылке
-function initGetPage() {
-    const params = new URLSearchParams(window.location.search);
-    const id = params.get('id');
-    const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
-    const content = document.getElementById('vote-content');
-    const titleEl = document.getElementById('vote-title');
-    const shareSection = document.getElementById('share-section');
-    const shareUrlInput = document.getElementById('share-url');
-    const copyBtn = document.getElementById('copy-link-btn');
-    
-    if (!id) {
-        content.innerHTML = `
-            <div class="viewer-empty">
-                <div class="viewer-empty-icon">❌</div>
-                <p>Неверная ссылка</p>
-                <p style="margin-top: 12px; font-size: 16px; color: #6b6e73;">
-                    Проверьте URL или создайте новый опрос
-                </p>
-                <a href="create.php?type=${type}" class="primary-button" style="margin-top: 20px; display: inline-flex;">
-                    Создать опрос
-                </a>
-            </div>
-        `;
-        if (titleEl) titleEl.textContent = 'Ошибка';
-        return;
     }
-    
-    // Загружаем данные опроса/викторины
-    loadVoteData(id, type, content, titleEl);
-    
-    // Показываем секцию поделиться только для создателя
-    const isCreator = params.get('creator') === '1';
-    const storedOwnerKey = localStorage.getItem('poll_owner_key_' + id);
-    
-    if (isCreator || storedOwnerKey) {
-        const baseUrl = window.location.href.split('?')[0];
-        const shareUrl = `${baseUrl}?id=${id}&type=${type}`;
-        shareUrlInput.value = shareUrl;
-        shareSection.hidden = false;
-        
-        // Получаем owner_key из localStorage (для опросов и викторин)
-        const ownerKey = storedOwnerKey || localStorage.getItem('quiz_owner_key_' + id);
-        if (!ownerKey) {
-            shareSection.hidden = true;
+    form.append(list, btn);
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const selected = form.querySelector('input:checked');
+        if (!selected) {
+            showToast('Выберите вариант');
             return;
         }
-        const statsUrl = `stats.php?id=${id}&type=${type}&owner_key=${encodeURIComponent(ownerKey)}`;
-        
-        const statsBtn = document.getElementById('stats-link-btn');
-        if (statsBtn) {
-            statsBtn.href = statsUrl;
-            statsBtn.hidden = false;
-        }
-        
-        if (copyBtn) {
-            copyBtn.addEventListener('click', () => {
-                shareUrlInput.select();
-                document.execCommand('copy');
-                copyBtn.innerHTML = '<span class="copy-icon">✅</span> Скопировано!';
-                setTimeout(() => {
-                    copyBtn.innerHTML = '<span class="copy-icon">📋</span> Копировать';
-                }, 2000);
+        if (selectedOptionID) return;
+        btn.disabled = true;
+        try {
+            const state = await authReady;
+            if (!state.authenticated) {
+                await openLoginFromConfig();
+                return;
+            }
+            const result = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/votes', {
+                method: 'POST',
+                body: JSON.stringify({ option_id: selected.value })
             });
+            renderPollView(container, result, id);
+            animateVoteBars(container);
+            showToast('Голос учтен', 'success');
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            btn.disabled = false;
         }
-        
-        // Загружаем именованные ссылки
-        loadPollLinks(id, ownerKey);
-        
-        // Обработчик создания ссылки
-        const createLinkBtn = document.getElementById('create-link-btn');
-        const linkNameInput = document.getElementById('link-name');
-        if (createLinkBtn && linkNameInput) {
-            createLinkBtn.addEventListener('click', () => {
-                const name = linkNameInput.value.trim();
-                if (!name) {
-                    showToast('Введите название ссылки', 'error');
-                    return;
-                }
-                createPollLink(id, ownerKey, name, type);
-                linkNameInput.value = '';
-            });
-        }
-        
-        // Обработчик tooltip
-        const helpBtn = document.getElementById('links-help-btn');
-        const tooltip = document.getElementById('links-tooltip');
-        if (helpBtn && tooltip) {
-            helpBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                tooltip.hidden = !tooltip.hidden;
-            });
-            
-            // Закрытие при клике вне
-            document.addEventListener('click', (e) => {
-                if (!tooltip.hidden && !helpBtn.contains(e.target) && !tooltip.contains(e.target)) {
-                    tooltip.hidden = true;
-                }
-            });
-            
-            // Предотвращаем закрытие при клике внутри tooltip
-            tooltip.addEventListener('click', (e) => {
-                e.stopPropagation();
-            });
-        }
-        
-        // Сохраняем share_link_id из URL
-        const shareLinkId = params.get('share_link_id');
-        if (shareLinkId) {
-            localStorage.setItem('share_link_id_' + id, shareLinkId);
-        }
-    }
+    });
+    container.replaceChildren(form);
+    animateVoteBars(container);
 }
 
-async function loadVoteData(id, type, content, titleEl) {
-    try {
-        const plural = type === 'quiz' ? 'quizzes' : 'polls';
-        const data = await apiJSON('/api/v1/' + plural + '/' + id);
-        
-        if (!data || !data.id) {
-            throw new Error('Не найдено');
-        }
-        
-        if (titleEl) {
-            titleEl.innerHTML = `
-                <span class="type-icon">${type === 'quiz' ? '🧠' : '📊'}</span>
-                <span class="type-text">${data.title || 'Без названия'}</span>
-            `;
-        }
-        
-        if (type === 'quiz') {
-            renderQuizView(content, data);
-        } else {
-            renderPollView(content, data, id);
-        }
-    } catch (e) {
-        console.error('Ошибка загрузки:', e);
-        content.innerHTML = `
-            <div class="viewer-empty">
-                <div class="viewer-empty-icon">❌</div>
-                <p>Опрос не найден или удалён</p>
-                <a href="create.php?type=${type}" class="primary-button" style="margin-top: 20px; display: inline-flex;">
-                    Создать новый
-                </a>
-            </div>
-        `;
-        if (titleEl) titleEl.textContent = 'Не найдено';
-    }
-}
-
-// Инициализация страницы статистики
-function initStatsPage() {
-    const params = new URLSearchParams(window.location.search);
-    const id = params.get('id');
-    const ownerKey = params.get('owner_key') || params.get('key');
-    const content = document.getElementById('stats-content');
-    const titleEl = document.getElementById('stats-title');
-    
-    if (!id || !ownerKey) {
-        content.innerHTML = `
-            <div class="viewer-empty">
-                <div class="viewer-empty-icon">❌</div>
-                <p>Неверная ссылка</p>
-                <p style="margin-top: 12px; font-size: 16px; color: #6b6e73;">
-                    Проверьте URL или обратитесь к создателю опроса
-                </p>
-                <a href="create.php?type=poll" class="primary-button" style="margin-top: 20px; display: inline-flex;">
-                    Создать опрос
-                </a>
-            </div>
-        `;
-        if (titleEl) titleEl.textContent = 'Ошибка';
-        return;
-    }
-    
-    loadStats(id, ownerKey, content, titleEl);
-}
-
-async function loadStats(id, ownerKey, content, titleEl) {
-    const params = new URLSearchParams(window.location.search);
-    const type = params.get('type') || 'poll';
-    const plural = type === 'quiz' ? 'quizzes' : 'polls';
-    
-    try {
-        const data = await apiJSON('/api/v1/' + plural + '/' + id + '/stats?owner_key=' + encodeURIComponent(ownerKey));
-        
-        if (!data || (!data.poll && !data.quiz)) {
-            throw new Error('Нет доступа');
-        }
-        
-        const item = data.poll || data.quiz;
-        const isQuiz = type === 'quiz';
-        titleEl.innerHTML = `
-            <span class="type-icon">${isQuiz ? '🧠' : '📊'}</span>
-            <span class="type-text">${escapeHtml(item.title || (isQuiz ? 'Викторина' : 'Опрос'))}</span>
-        `;
-        
-        renderStats(content, data, type);
-    } catch (e) {
-        console.error('Ошибка загрузки статистики:', e);
-        
-        // Проверяем, не ошибка ли это авторизации
-        const errorMsg = e.message || '';
-        const isAuthError = errorMsg.includes('Нет доступа') || errorMsg.includes('ключ');
-        
-        content.innerHTML = `
-            <div class="viewer-empty">
-                <div class="viewer-empty-icon">🔒</div>
-                <p>Нет доступа к статистике</p>
-                <p style="margin-top: 12px; font-size: 16px; color: #6b6e73;">
-                    ${isAuthError ? 'Только создатель опроса может просматривать статистику.' : escapeHtml(e.message)}
-                </p>
-                ${isAuthError ? `
-                    <div style="margin-top: 20px; display: flex; gap: 12px; justify-content: center;">
-                        <a href="login.php?redirect=${encodeURIComponent(window.location.href)}" class="primary-button">
-                            Войти
-                        </a>
-                        <a href="javascript:history.back()" class="ghost-button">
-                            Назад
-                        </a>
-                    </div>
-                ` : `
-                    <a href="javascript:history.back()" class="ghost-button" style="margin-top: 20px; display: inline-flex;">
-                        Назад
-                    </a>
-                `}
-            </div>
-        `;
-        if (titleEl) titleEl.textContent = 'Ошибка';
-    }
-}
-
-function renderStats(content, data, type) {
-    const isQuiz = type === 'quiz';
-    const poll = data.poll;
-    const quiz = data.quiz;
-    const item = poll || quiz;
-    
-    if (isQuiz && data.questions) {
-        // Статистика викторины
-        const totalAttempts = data.total_attempts || 0;
-        
-        let html = `
-            <div class="stats-overview">
-                <div class="metric-card metric-card--total">
-                    <div class="metric-card__icon">🎯</div>
-                    <div class="metric-card__value">${totalAttempts.toLocaleString()}</div>
-                    <div class="metric-card__label">Правильных ответов</div>
-                </div>
-            </div>
-            
-            <div class="stats-section">
-                <h2 class="stats-section__title">📋 Вопросы и ответы</h2>
-        `;
-        
-        data.questions.forEach((q, qIdx) => {
-            html += `<div class="quiz-question-stats"><h3>Вопрос ${qIdx + 1}: ${escapeHtml(q.question_text)}</h3>`;
-            
-            q.answers.forEach(a => {
-                const percent = a.percent || 0;
-                html += `
-                    <div class="result-option">
-                        <div class="result-bar" style="width: ${percent}%; background: ${a.is_correct ? '#5caf70' : '#cf5c8a'}"></div>
-                        <div class="result-content">
-                            <span>${escapeHtml(a.text)} ${a.is_correct ? '✅' : ''}</span>
-                            <span class="result-votes">${a.attempts} попыток</span>
-                            <span class="result-percent">${percent}% правильных</span>
-                        </div>
-                    </div>
-                `;
-            });
-            
-            html += `</div>`;
+function animateVoteBars(container) {
+    window.requestAnimationFrame(() => {
+        container.querySelectorAll('.vote-result-bar__fill').forEach((fill) => {
+            fill.style.width = fill.style.getPropertyValue('--target') || '0%';
         });
-        
-        html += `</div>`;
-        
-        // Analytics
-        if (data.analytics) {
-            if (data.analytics.browsers && data.analytics.browsers.length > 0) {
-                html += renderPieChartSection('🌐 Браузеры', data.analytics.browsers, 'browser');
-            }
-            if (data.analytics.os && data.analytics.os.length > 0) {
-                html += renderPieChartSection('💻 Операционные системы', data.analytics.os, 'os');
-            }
-            if (data.analytics.devices && data.analytics.devices.length > 0) {
-                html += renderPieChartSection('📱 Устройства', data.analytics.devices, 'device');
-            }
-            if (data.analytics.locations && data.analytics.locations.length > 0) {
-                html += renderPieChartSection('🌍 География', data.analytics.locations, 'location');
-            }
-        }
-        
-        content.innerHTML = html;
-        return;
-    }
-    
-    // Статистика опроса (старый код)
-    const { options, total_votes, analytics } = data;
-    
-    let html = `
-        <div class="stats-overview">
-            <div class="metric-card metric-card--total">
-                <div class="metric-card__icon">🗳️</div>
-                <div class="metric-card__value">${total_votes.toLocaleString()}</div>
-                <div class="metric-card__label">Всего голосов</div>
+    });
+}
+
+function renderQuizView(container, data) {
+    container.innerHTML = `
+        <div class="quiz-viewer">
+            <div class="quiz-question-box"><h2>${escapeHtml(data.question)}</h2></div>
+            <div class="answer-list"></div>
+            <div class="vote-actions">
+                <button class="primary-button" type="button">Проверить</button>
+                <p class="status form-status" role="status"></p>
             </div>
         </div>
-        
-        <div class="stats-section">
-            <h2 class="stats-section__title">📋 Результаты опроса</h2>
-            <div class="poll-results">
     `;
-    
-    options.forEach(opt => {
-        html += `
-            <div class="result-option">
-                <div class="result-bar" style="width: ${opt.percent}%"></div>
-                <div class="result-content">
-                    <span>${escapeHtml(opt.text)}</span>
-                    <span class="result-votes">${opt.votes} гол.</span>
-                    <span class="result-percent">${opt.percent}%</span>
-                </div>
-            </div>
+    const list = container.querySelector('.answer-list');
+    (data.answers || []).forEach((answer) => {
+        const label = document.createElement('label');
+        label.className = 'vote-option';
+        label.innerHTML = `
+            <input type="radio" name="ans" value="${escapeHtml(answer.id)}">
+            <span class="vote-option__body">
+                <span class="vote-option__top">
+                    <span class="vote-option__text">${escapeHtml(answer.text)}</span>
+                    <span class="vote-count" hidden></span>
+                </span>
+                <span class="vote-result-bar"><span class="vote-result-bar__fill" style="--target:0%"></span><span class="vote-result-bar__label">0%</span></span>
+            </span>
         `;
+        list.append(label);
     });
-    
-    html += `</div></div>`;
-    
-    // Analytics sections with Pie Charts
-    if (analytics) {
-        // Browsers
-        if (analytics.browsers && analytics.browsers.length > 0) {
-            html += renderPieChartSection('🌐 Браузеры', analytics.browsers, 'browser');
+    const button = container.querySelector('.primary-button');
+    button.addEventListener('click', async () => {
+        const selected = container.querySelector('input:checked');
+        const status = container.querySelector('.status');
+        if (!selected) {
+            setStatus(status, 'Выберите вариант', 'error');
+            return;
         }
-        
-        // OS
-        if (analytics.os && analytics.os.length > 0) {
-            html += renderPieChartSection('💻 Операционные системы', analytics.os, 'os');
+        button.disabled = true;
+        try {
+            const state = await authReady;
+            if (!state.authenticated) {
+                await openLoginFromConfig();
+                return;
+            }
+            const result = await apiJSON('/api/v1/quizzes/' + encodeURIComponent(data.id) + '/answers', {
+                method: 'POST',
+                body: JSON.stringify({ answer_id: selected.value })
+            });
+            renderQuizResult(container, data, result);
+            showToast(result.is_correct ? 'Ответ сохранен: правильно' : 'Ответ сохранен', result.is_correct ? 'success' : 'error');
+        } catch (error) {
+            showToast(error.message, 'error');
+            setStatus(status, error.message, 'error');
+        } finally {
+            button.disabled = false;
         }
-        
-        // Devices
-        if (analytics.devices && analytics.devices.length > 0) {
-            html += renderPieChartSection('📱 Устройства', analytics.devices, 'device');
-        }
-        
-        // Locations
-        if (analytics.locations && analytics.locations.length > 0) {
-            html += renderPieChartSection('🌍 География', analytics.locations, 'location');
-        }
-        
-        // Share Links
-        if (analytics.share_links && analytics.share_links.length > 0) {
-            html += renderPieChartSection('🔗 Именованные ссылки', analytics.share_links, 'share_link');
-        }
-    }
-    
-    content.innerHTML = html;
+    });
 }
 
-function renderPieChartSection(title, items, type) {
-    const total = items.reduce((sum, item) => sum + parseInt(item.count), 0);
-    const colors = ['#5caf70', '#8a5caf', '#5c9caf', '#cf5caf', '#cfa55c', '#5ccf8a', '#cf5c8a', '#5ccfdd'];
-
-    // Генерируем SVG pie chart
-    let svgPaths = '';
-    let cumulativePercent = 0;
-    
-    items.forEach((item, index) => {
-        const count = parseInt(item.count);
-        const percent = total > 0 ? (count / total * 100) : 0;
-        const startPercent = cumulativePercent;
-        cumulativePercent += percent;
-        
-        const startAngle = (startPercent / 100) * 360;
-        const endAngle = (cumulativePercent / 100) * 360;
-        
-        svgPaths += createPieSlice(startAngle, endAngle, colors[index % colors.length], index);
-    });
-    
-    let html = `
-        <div class="stats-section">
-            <h2 class="stats-section__title">${title}</h2>
-            <div class="pie-chart-container">
-                <div class="pie-chart-wrapper">
-                    <svg class="pie-chart-svg" viewBox="0 0 100 100">
-                        ${svgPaths}
-                    </svg>
-                    <div class="pie-chart-center">
-                        <div class="pie-chart-center__total">${total}</div>
-                        <div class="pie-chart-center__label">голосов</div>
-                    </div>
-                </div>
-                <div class="pie-legend">
+function renderQuizResult(container, data, result) {
+    container.innerHTML = `
+        <div class="quiz-viewer">
+            <div class="quiz-question-box"><h2>${escapeHtml(data.question)}</h2></div>
+            <div class="answer-list"></div>
+            <div class="vote-actions">
+                <p class="status form-status ${result.is_correct ? 'is-success' : 'is-error'}" role="status">${result.is_correct ? 'Правильно' : 'Ответ сохранен'}</p>
+            </div>
+        </div>
     `;
-    
-    items.forEach((item, index) => {
-        const count = parseInt(item.count);
-        const percent = total > 0 ? Math.round(count / total * 100) : 0;
-        const icon = getItemIcon(item.name, type);
-        
-        html += `
-            <div class="pie-legend-item">
-                <div class="pie-legend-color" style="background: ${colors[index % colors.length]}"></div>
-                <span class="pie-legend-icon">${icon}</span>
-                <div class="pie-legend-content">
-                    <div class="pie-legend-name">${escapeHtml(item.name)}</div>
-                    <div class="pie-legend-stats">
-                        <span class="pie-legend-count">${count.toLocaleString()}</span>
-                        <span class="pie-legend-percent">${percent}%</span>
-                    </div>
-                    <div class="pie-legend-bar">
-                        <div class="pie-legend-bar-fill" style="width: ${percent}%; background: ${colors[index % colors.length]}"></div>
-                    </div>
-                </div>
-            </div>
+    const list = container.querySelector('.answer-list');
+    (result.answers || []).forEach((answer) => {
+        const label = document.createElement('div');
+        const isSelected = answer.id === result.selected_answer_id;
+        label.className = 'vote-option is-result';
+        label.classList.toggle('is-correct', !!answer.is_correct);
+        label.classList.toggle('is-error', isSelected && !answer.is_correct);
+        label.innerHTML = `
+            <span class="vote-option__marker"></span>
+            <span class="vote-option__body">
+                <span class="vote-option__top">
+                    <span class="vote-option__text">${escapeHtml(answer.text)}</span>
+                    <span class="vote-count">${answer.attempts || 0} · ${answer.percent || 0}%</span>
+                </span>
+                <span class="vote-result-bar">
+                    <span class="vote-result-bar__fill" style="--target:${answer.percent || 0}%"></span>
+                    <span class="vote-result-bar__label">${answer.percent || 0}%</span>
+                </span>
+            </span>
         `;
+        list.append(label);
     });
-    
-    html += `</div></div></div>`;
-    return html;
+    animateVoteBars(container);
 }
 
-function createPieSlice(startAngle, endAngle, color, index) {
-    // Обработка случая 100% (полный круг)
-    if (endAngle - startAngle >= 359.99) {
-        // Рисуем полный круг
-        return `<circle cx="50" cy="50" r="40" fill="${color}" stroke="#1a1c1e" stroke-width="1"/>`;
+function buildPieSvg(options) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 120 120');
+    svg.classList.add('pie-svg');
+    const total = options.reduce((sum, option) => sum + (option.votes || 0), 0);
+    if (!total) {
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', '60');
+        circle.setAttribute('cy', '60');
+        circle.setAttribute('r', '48');
+        circle.setAttribute('fill', '#2d2e31');
+        svg.append(circle);
+        return svg;
     }
-    
-    const x1 = 50 + 40 * Math.cos(Math.PI * startAngle / 180);
-    const y1 = 50 + 40 * Math.sin(Math.PI * startAngle / 180);
-    const x2 = 50 + 40 * Math.cos(Math.PI * endAngle / 180);
-    const y2 = 50 + 40 * Math.sin(Math.PI * endAngle / 180);
-    
-    const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1;
-    
-    return `<path d="M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArcFlag} 1 ${x2} ${y2} Z" fill="${color}" stroke="#1a1c1e" stroke-width="1"/>`;
+    let current = -90;
+    options.forEach((option, index) => {
+        const start = current;
+        const end = start + ((option.votes || 0) / total) * 360;
+        current = end;
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', piePath(60, 60, 48, start, end));
+        path.setAttribute('fill', chartColor(index));
+        svg.append(path);
+    });
+    return svg;
 }
 
-function getItemIcon(name, type) {
-    if (type === 'browser') {
-        const icons = { 
-            'Chrome': '🌐', 
-            'Firefox': '🦊', 
-            'Safari': '🧭', 
-            'Edge': '🌀', 
-            'Opera': '🔴',
-            'Samsung Internet': '📱',
-            'Yandex': '🔴',
-            'Other': '❓'
-        };
-        return icons[name] || '🌐';
-    }
-    
-    if (type === 'os') {
-        const icons = { 'Windows': '🪟', 'macOS': '🍎', 'Linux': '🐧', 'Android': '🤖', 'iOS': '📱', 'Other': '❓' };
-        return icons[name] || '💻';
-    }
-    
-    if (type === 'device') {
-        const icons = { 'desktop': '🖥️', 'mobile': '📱', 'tablet': '📟', 'unknown': '❓' };
-        return icons[name.toLowerCase()] || '🖥️';
-    }
-    
-    if (type === 'location') {
-        const countryIcons = {
-            'RU': '🇷🇺', 'US': '🇺🇸', 'GB': '🇬🇧', 'DE': '🇩🇪', 'FR': '🇫🇷',
-            'ES': '🇪🇸', 'IT': '🇮🇹', 'CN': '🇨🇳', 'JP': '🇯🇵', 'KR': '🇰🇷',
-            'IN': '🇮🇳', 'BR': '🇧🇷', 'CA': '🇨🇦', 'AU': '🇦🇺', 'UA': '🇺🇦',
-            'BY': '🇧🇾', 'KZ': '🇰🇿', 'UZ': '🇺🇿', 'TR': '🇹🇷', 'PL': '🇵🇱'
-        };
-        const code = name.toUpperCase().trim();
-        if (countryIcons[code]) return countryIcons[code];
-        if (code.length === 2) return '🌍';
-        return '🌐';
-    }
-    
-    if (type === 'share_link') {
-        const linkIcons = {
-            'telegram': '✈️',
-            'tg': '✈️',
-            'vk': '💙',
-            'vkontakte': '💙',
-            'ok': '🟠',
-            'odnoklassniki': '🟠',
-            'twitter': '🐦',
-            'x': '🐦',
-            'facebook': '📘',
-            'fb': '📘',
-            'instagram': '📷',
-            'insta': '📷',
-            'tiktok': '🎵',
-            'tik': '🎵',
-            'youtube': '▶️',
-            'yt': '▶️',
-            'email': '📧',
-            'почта': '📧',
-            'sms': '💬',
-            'qr': '📱',
-            'qr-код': '📱',
-            'website': '🌐',
-            'site': '🌐',
-            'web': '🌐',
-            'custom': '🔗'
-        };
-        const key = name.toLowerCase().trim();
-        
-        // Проверяем точное совпадение
-        if (linkIcons[key]) return linkIcons[key];
-        
-        // Проверяем частичное совпадение
-        for (const [k, icon] of Object.entries(linkIcons)) {
-            if (key.includes(k)) return icon;
+function piePath(cx, cy, r, startAngle, endAngle) {
+    const start = polar(cx, cy, r, endAngle);
+    const end = polar(cx, cy, r, startAngle);
+    const largeArc = endAngle - startAngle <= 180 ? '0' : '1';
+    return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y} Z`;
+}
+
+function polar(cx, cy, r, angle) {
+    const rad = (angle * Math.PI) / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function chartColor(index) {
+    return ['#5caf70', '#8d8d8f', '#d7d9dc', '#3a3b3d', '#92d2a2', '#bfc1c5'][index % 6];
+}
+
+function metric(label, value) {
+    const item = document.createElement('div');
+    item.className = 'metric-box metric-box--small';
+    item.innerHTML = `<small>${escapeHtml(label)}</small><span>${escapeHtml(value)}</span>`;
+    return item;
+}
+
+function renderMessage(container, message, isError) {
+    container.replaceChildren();
+    const p = document.createElement('p');
+    p.className = 'form-status ' + (isError ? 'is-error' : '');
+    p.textContent = message;
+    container.append(p);
+}
+
+async function initAdminPanel(root) {
+    let csrf = null;
+    let currentType = 'polls';
+    const loginBox = root.querySelector('[data-admin-login]');
+    const panel = root.querySelector('[data-admin-panel]');
+    const status = root.querySelector('[data-admin-status]');
+    const list = root.querySelector('[data-admin-list]');
+    const summary = root.querySelector('[data-admin-summary]');
+    const logout = document.querySelector('[data-admin-logout]');
+
+    async function refreshSession() {
+        const data = await apiJSON('/api/v1/admin/me');
+        csrf = data.csrf || null;
+        loginBox.hidden = data.authenticated;
+        panel.hidden = !data.authenticated;
+        if (logout) logout.hidden = !data.authenticated;
+        if (data.authenticated) {
+            setStatus(status, '', '');
+            await loadAdmin();
+            return;
         }
-        
-        return '🔗';
+        setStatus(status, 'Админ-панель доступна только разрешенным Telegram-аккаунтам.', 'error');
+        const state = await authReady;
+        if (!state.authenticated) openLoginFromConfig();
     }
-    
-    return '📊';
-}
 
-// Инициализация при загрузке страницы
-document.addEventListener('DOMContentLoaded', function() {
-    updateUserNav();
-});
-function copyShareUrl(source) {
-    const shareUrlInput = document.getElementById('share-url');
-    if (!shareUrlInput) return;
-
-    const baseUrl = shareUrlInput.value.split('?')[0];
-    const params = new URLSearchParams(window.location.search);
-    const id = params.get('id');
-    const type = params.get('type') || 'poll';
-    
-    const shareUrl = `${baseUrl}?id=${id}&type=${type}`;
-    
-    navigator.clipboard.writeText(shareUrl).then(() => {
-        const btn = event.target.closest('button');
-        const originalText = btn.innerHTML;
-        btn.innerHTML = '✅ Скопировано!';
-        setTimeout(() => {
-            btn.innerHTML = originalText;
-        }, 2000);
-    }).catch(() => {
-        showToast('Не удалось скопировать', 'error');
-    });
-}
-
-// Функции авторизации
-function getCurrentUser() {
-    try {
-        const user = localStorage.getItem('votely_user');
-        return user ? JSON.parse(user) : null;
-    } catch (e) {
-        return null;
+    async function loadAdmin() {
+        const summaryData = await apiJSON('/api/v1/admin/summary');
+        summary.replaceChildren(
+            metric('Опросы', summaryData.polls),
+            metric('Викторины', summaryData.quizzes),
+            metric('Голоса', summaryData.votes),
+            metric('Пользователи', summaryData.users)
+        );
+        const data = await apiJSON('/api/v1/admin/items?type=' + currentType);
+        renderAdminItems(list, data.items || [], currentType, csrf, loadAdmin);
     }
-}
 
-function logoutUser() {
-    localStorage.removeItem('votely_user');
-    fetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
-    window.location.href = 'login.php';
-}
-
-function updateUserNav() {
-    const user = getCurrentUser();
-    const navRight = document.querySelector('.nav__right');
-    if (!navRight) return;
-    
-    if (user) {
-        navRight.innerHTML = `
-            <div class="dropdown dropdown--right" data-dropdown>
-                <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
-                    👤 ${escapeHtml(user.name || user.email)}
-                </button>
-                <div class="dropdown__menu" role="menu">
-                    <a class="dropdown__item" href="browse.php?type=poll" role="menuitem">Мои опросы</a>
-                    <a class="dropdown__item" href="#" role="menuitem" onclick="logoutUser(); return false;">Выйти</a>
-                </div>
-            </div>
-        `;
-    } else {
-        navRight.innerHTML = `
-            <div class="dropdown dropdown--right" data-dropdown>
-                <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">Войти</button>
-                <div class="dropdown__menu" role="menu">
-                    <a class="dropdown__item" href="register.php" role="menuitem">Регистрация</a>
-                    <a class="dropdown__item" href="login.php" role="menuitem">Авторизация</a>
-                </div>
-            </div>
-        `;
-    }
-    
-    // Reinitialize dropdowns
-    document.querySelectorAll('[data-dropdown]').forEach(initDropdown);
-}
-
-function initDropdown(dropdown) {
-    const trigger = dropdown.querySelector('.dropdown__trigger');
-    const menu = dropdown.querySelector('.dropdown__menu');
-    if (!trigger || !menu) return;
-    
-    trigger.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const isOpen = menu.getAttribute('aria-expanded') === 'true';
-        
-        // Close all other dropdowns
-        document.querySelectorAll('.dropdown__menu').forEach(m => {
-            m.setAttribute('aria-expanded', 'false');
-            m.closest('.dropdown').classList.remove('dropdown--open');
+    root.querySelectorAll('[data-admin-type]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            currentType = button.dataset.adminType;
+            root.querySelectorAll('[data-admin-type]').forEach((item) => item.classList.toggle('is-active', item === button));
+            await loadAdmin();
         });
-        
-        if (!isOpen) {
-            menu.setAttribute('aria-expanded', 'true');
-            dropdown.classList.add('dropdown--open');
-        }
     });
-    
-    document.addEventListener('click', () => {
-        menu.setAttribute('aria-expanded', 'false');
-        dropdown.classList.remove('dropdown--open');
-    });
-}
 
-// Загрузка именованных ссылок
-async function loadPollLinks(pollId, ownerKey, type = 'poll') {
-    const linksList = document.getElementById('links-list');
-    if (!linksList) return;
-    
+    logout?.addEventListener('click', async () => {
+        await apiJSON('/api/v1/auth/logout', { method: 'POST' });
+        window.location.href = 'index.php';
+    });
+
     try {
-        const plural = type === 'quiz' ? 'quizzes' : 'polls';
-        const data = await apiJSON(`/api/v1/${plural}/${pollId}/links?owner_key=${encodeURIComponent(ownerKey)}`);
-        renderPollLinks(linksList, data.items || [], pollId, ownerKey, type);
-    } catch (e) {
-        console.error('Ошибка загрузки ссылок:', e);
-        linksList.innerHTML = '<p style="color: #6b6e73; font-size: 14px;">Не удалось загрузить ссылки</p>';
+        await refreshSession();
+    } catch (error) {
+        setStatus(status, error.message, 'error');
     }
 }
 
-function renderPollLinks(container, items, pollId, ownerKey, type = 'poll') {
-    if (!container) return;
-    
-    if (items.length === 0) {
-        container.innerHTML = '<p style="color: #6b6e73; font-size: 14px;">Пока нет именованных ссылок. Создайте первую!</p>';
+function renderAdminItems(list, items, type, csrf, reload) {
+    list.replaceChildren();
+    if (!items.length) {
+        renderMessage(list, 'Список пуст.', false);
         return;
     }
-    
-    container.innerHTML = '';
-    const baseUrl = window.location.href.split('?')[0];
-    const itemType = new URLSearchParams(window.location.search).get('type') || type;
-    
-    items.forEach(link => {
-        const linkUrl = `${baseUrl}?id=${pollId}&type=${itemType}&share_link_id=${link.id}`;
-        const div = document.createElement('div');
-        div.className = 'link-item';
-        div.innerHTML = `
-            <div class="link-item__info">
-                <span class="link-item__name">${escapeHtml(link.name)}</span>
+    items.forEach((item) => {
+        const row = document.createElement('article');
+        row.className = 'admin-row';
+        row.innerHTML = `
+            <div class="admin-row-info">
+                <h3 class="admin-row-title">${escapeHtml(item.title)}</h3>
+                <p class="admin-row-id">${escapeHtml(item.id)}</p>
             </div>
-            <div class="link-item__actions">
-                <button class="link-item__btn link-item__btn--copy" data-link-url="${escapeHtml(linkUrl)}">
-                    📋 Копировать
-                </button>
-                <button class="link-item__btn link-item__btn--delete" data-link-id="${link.id}" data-type="${type}">
-                    🗑️ Удалить
-                </button>
-            </div>
+            <button class="admin-row-btn" type="button">Удалить</button>
         `;
-        container.appendChild(div);
-    });
-    
-    // Обработчики кнопок
-    container.querySelectorAll('.link-item__btn--copy').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const url = btn.dataset.linkUrl;
-            navigator.clipboard.writeText(url).then(() => {
-                btn.innerHTML = '✅ Скопировано!';
-                setTimeout(() => {
-                    btn.innerHTML = '📋 Копировать';
-                }, 2000);
+        row.querySelector('button').addEventListener('click', async () => {
+            if (!window.confirm('Удалить запись?')) return;
+            await apiJSON('/api/v1/admin/' + type + '/' + encodeURIComponent(item.id), {
+                method: 'DELETE',
+                headers: { 'X-CSRF-Token': csrf || '' }
             });
+            showToast('Запись удалена', 'success');
+            await reload();
         });
-    });
-    
-    container.querySelectorAll('.link-item__btn--delete').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            if (!confirm('Удалить эту ссылку?')) return;
-            const linkId = btn.dataset.linkId;
-            const itemType = btn.dataset.type || 'poll';
-            const plural = itemType === 'quiz' ? 'quizzes' : 'polls';
-            try {
-                await apiJSON(`/api/v1/${plural}/${pollId}/links/${linkId}?owner_key=${encodeURIComponent(ownerKey)}`, {
-                    method: 'DELETE'
-                });
-                loadPollLinks(pollId, ownerKey, itemType);
-            } catch (e) {
-                showToast('Не удалось удалить ссылку', 'error');
-            }
-        });
+        list.append(row);
     });
 }
-
-async function createPollLink(pollId, ownerKey, name, type = 'poll') {
-    // Определяем utm_source из названия
-    const lowerName = name.toLowerCase();
-    let utmSource = 'custom';
-    
-    if (lowerName.includes('tele') || lowerName.includes('tg')) utmSource = 'telegram';
-    else if (lowerName.includes('vk') || lowerName.includes('vkontakte')) utmSource = 'vk';
-    else if (lowerName.includes('ok') || lowerName.includes('odnoklassniki')) utmSource = 'ok';
-    else if (lowerName.includes('twit') || lowerName.includes('x.com')) utmSource = 'twitter';
-    else if (lowerName.includes('face') || lowerName.includes('fb')) utmSource = 'facebook';
-    else if (lowerName.includes('insta')) utmSource = 'instagram';
-    else if (lowerName.includes('tiktok') || lowerName.includes('tik')) utmSource = 'tiktok';
-    else if (lowerName.includes('youtube') || lowerName.includes('yt')) utmSource = 'youtube';
-    else if (lowerName.includes('email') || lowerName.includes('почта')) utmSource = 'email';
-    else if (lowerName.includes('sms')) utmSource = 'sms';
-    else if (lowerName.includes('qr') || lowerName.includes('qr-')) utmSource = 'qr';
-    else if (lowerName.includes('site') || lowerName.includes('web')) utmSource = 'website';
-    
-    const plural = type === 'quiz' ? 'quizzes' : 'polls';
-    
-    try {
-        const data = await apiJSON(`/api/v1/${plural}/${pollId}/links?owner_key=${encodeURIComponent(ownerKey)}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: name,
-                utm_source: utmSource,
-                utm_medium: 'shared'
-            })
-        });
-        
-        showToast('Ссылка создана', 'success');
-        loadPollLinks(pollId, ownerKey, type);
-    } catch (e) {
-        showToast(e.message || 'Не удалось создать ссылку', 'error');
-    }
-}
-
-// Инициализация при загрузке страницы
-document.addEventListener('DOMContentLoaded', function() {
-    updateUserNav();
-});

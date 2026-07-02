@@ -77,8 +77,8 @@
                     <div class="dropdown dropdown--right" data-dropdown>
                         <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">Войти</button>
                         <div class="dropdown__menu" role="menu">
-                            <a class="dropdown__item" href="register.php" role="menuitem">Регистрация</a>
-                            <a class="dropdown__item" href="login.php" role="menuitem">Авторизация</a>
+                            <a class="dropdown__item" href="/api/v1/auth/telegram/config" role="menuitem" data-auth-action="register">Регистрация</a>
+                            <a class="dropdown__item" href="/api/v1/auth/telegram/config" role="menuitem" data-auth-action="login">Авторизация</a>
                         </div>
                     </div>
                 </div>
@@ -90,24 +90,12 @@
                 <div class="creator__header">
                     <div>
                         <p class="creator__eyebrow">Votely Studio</p>
-                        <h1 class="creator__title" id="creator-title">
-                            <span class="type-icon">📊</span>
-                            <span class="type-text">Создать опрос</span>
-                        </h1>
+                        <h1 class="creator__title" id="creator-title">Создать опрос</h1>
                     </div>
                     <div class="creator__switch" aria-label="Тип формы">
-                        <a class="creator__switch-link" href="create.php?type=poll" data-type-link="poll">
-                            <span class="switch-icon">📊</span> Опрос
-                        </a>
-                        <a class="creator__switch-link" href="create.php?type=quiz" data-type-link="quiz">
-                            <span class="switch-icon">🧠</span> Викторина
-                        </a>
+                        <a class="creator__switch-link" href="create.php?type=poll" data-type-link="poll">Опрос</a>
+                        <a class="creator__switch-link" href="create.php?type=quiz" data-type-link="quiz">Викторина</a>
                     </div>
-                </div>
-
-                <div class="creator-type-badge" data-type-badge>
-                    <span class="badge-icon">📊</span>
-                    <span class="badge-text">Создание опроса</span>
                 </div>
 
                 <form class="creator-form" data-create-form>
@@ -123,9 +111,7 @@
 
                     <div class="creator-form__section" data-poll-fields>
                         <div class="creator-form__section-head">
-                            <h2 class="creator-form__subtitle">
-                                <span class="section-icon">📋</span> Варианты ответа
-                            </h2>
+                            <h2 class="creator-form__subtitle">Варианты ответа</h2>
                             <button class="ghost-button" type="button" data-add-option>Добавить вариант ответа</button>
                         </div>
                         <div class="stack" data-options-list></div>
@@ -133,18 +119,14 @@
 
                     <div class="creator-form__section" data-quiz-fields hidden>
                         <div class="creator-form__section-head">
-                            <h2 class="creator-form__subtitle">
-                                <span class="section-icon">❓</span> Вопрос викторины
-                            </h2>
+                            <h2 class="creator-form__subtitle">Вопрос викторины</h2>
                             <button class="ghost-button" type="button" data-add-answer>Добавить вариант ответа</button>
                         </div>
                         <div class="stack stack--large" data-questions-list></div>
                     </div>
 
                     <div class="creator-form__actions">
-                        <button class="primary-button" type="submit">
-                            <span class="btn-icon">✨</span> Создать
-                        </button>
+                        <button class="primary-button" type="submit">Создать</button>
                         <p class="form-status" data-form-status role="status" aria-live="polite"></p>
                     </div>
                 </form>

@@ -1,3 +1,15 @@
+-- Таблица для именованных ссылок викторин
+CREATE TABLE IF NOT EXISTS quiz_share_links (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    quiz_id UUID NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    utm_source VARCHAR(100) DEFAULT 'custom',
+    utm_medium VARCHAR(100) DEFAULT 'shared',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_quiz_share_links_quiz_id ON quiz_share_links(quiz_id);
+
 -- Таблица для хранения попыток прохождения викторин
 CREATE TABLE IF NOT EXISTS quiz_attempts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -21,15 +33,3 @@ CREATE INDEX IF NOT EXISTS idx_quiz_attempts_quiz_id ON quiz_attempts(quiz_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_attempts_question_id ON quiz_attempts(question_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_attempts_created_at ON quiz_attempts(created_at);
 CREATE INDEX IF NOT EXISTS idx_quiz_attempts_share_link_id ON quiz_attempts(share_link_id);
-
--- Таблица для именованных ссылок викторин
-CREATE TABLE IF NOT EXISTS quiz_share_links (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    quiz_id UUID NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL,
-    utm_source VARCHAR(100) DEFAULT 'custom',
-    utm_medium VARCHAR(100) DEFAULT 'shared',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_quiz_share_links_quiz_id ON quiz_share_links(quiz_id);

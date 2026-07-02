@@ -28,7 +28,7 @@
                             <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
                         </div>
                     </div>
-                    <a class="nav-link" href="browse.php?type=poll">Опросы</a>
+                    <a class="nav-link" href="browse.php?type=poll">Все опросы</a>
                 </div>
                 <div class="searchdiv">
                     <form class="search-form" action="browse.php" role="search">
@@ -82,8 +82,8 @@
                             Войти
                         </button>
                         <div class="dropdown__menu" role="menu">
-                            <a class="dropdown__item" href="register.php" role="menuitem">Регистрация</a>
-                            <a class="dropdown__item" href="login.php" role="menuitem">Авторизация</a>
+                            <a class="dropdown__item" href="/api/v1/auth/telegram/config" role="menuitem" data-auth-action="register">Регистрация</a>
+                            <a class="dropdown__item" href="/api/v1/auth/telegram/config" role="menuitem" data-auth-action="login">Авторизация</a>
                         </div>
                     </div>
                 </div>
@@ -105,6 +105,7 @@
                             <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
                         </div>
                     </div>
+                    <a class="browse-cta" href="browse.php?type=poll">Все опросы</a>
                 </div>
             </section>
         </main>

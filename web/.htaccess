@@ -1,12 +1,16 @@
 RewriteEngine On
 
-# API запросы -> api.php
-RewriteRule ^api/v1(.*)$ api.php [QSA,L]
+Header always set X-Content-Type-Options "nosniff"
+Header always set Referrer-Policy "same-origin"
+Header always set X-Frame-Options "DENY"
+Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://telegram.org 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src https://oauth.telegram.org https://telegram.org; connect-src 'self' https://oauth.telegram.org https://telegram.org; img-src 'self' https://t.me https://telegram.org data:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 
-# Статические файлы и директории пропускаем
+# Проксируем все API-запросы на Go-бэкенд
+RewriteCond %{REQUEST_URI} ^/api/v1/ [NC]
+RewriteRule ^(.*)$ http://go-api:8081/$1 [P,L]
+
+# Если файл существует, отдаём его
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-
-# Остальное -> index.php
 RewriteRule ^ index.php [L]
-

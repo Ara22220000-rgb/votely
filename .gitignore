@@ -1,0 +1,8 @@
+.env
+.DS_Store
+internal/.DS_Store
+web/.DS_Store
+postgres_data/
+tmp/
+*.log
+node_modules/
