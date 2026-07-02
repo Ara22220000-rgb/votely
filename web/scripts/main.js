@@ -56,8 +56,57 @@ function setStatus(el, msg, kind) {
     el.className = 'form-status ' + (kind ? 'is-' + kind : '');
 }
 
+// Проверка авторизации и обновление навигации
+async function initAuthNav() {
+    const navRight = document.querySelector('.nav__right');
+    if (!navRight) return;
+    
+    try {
+        const res = await fetch('/api/v1/auth/me');
+        const data = await res.json();
+
+        if (data.authenticated && data.user) {
+            // Пользователь авторизован — показываем имя и кнопку "Выйти"
+            const userName = data.user.name || data.user.email || 'Профиль';
+            navRight.innerHTML = `
+                <div class="dropdown dropdown--right" data-dropdown>
+                    <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">${escapeHtml(userName)}</button>
+                    <div class="dropdown__menu" role="menu">
+                        <a class="dropdown__item" href="create.php?type=poll" role="menuitem">Создать опрос</a>
+                        <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
+                        <button class="dropdown__item" type="button" id="logout-btn" role="menuitem">Выйти</button>
+                    </div>
+                </div>
+            `;
+
+            // Инициализируем dropdown заново
+            navRight.querySelectorAll('[data-dropdown]').forEach((dropdown) => {
+                const trigger = dropdown.querySelector('.dropdown__trigger');
+                const setExpanded = (expanded) => { trigger?.setAttribute('aria-expanded', String(expanded)); };
+                dropdown.addEventListener('mouseenter', () => setExpanded(true));
+                dropdown.addEventListener('mouseleave', () => setExpanded(false));
+            });
+
+            // Обработчик выхода
+            const logoutBtn = document.getElementById('logout-btn');
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', async () => {
+                    try {
+                        await fetch('/api/v1/auth/logout', { method: 'POST' });
+                    } catch (e) { /* игнорируем */ }
+                    localStorage.removeItem('votely_user');
+                    window.location.href = 'index.php';
+                });
+            }
+        }
+    } catch (e) {
+        // Не авторизован — оставляем кнопку "Войти"
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     initToasts();
+    initAuthNav();
     const createForm = document.querySelector('[data-create-form]');
     const browseRoot = document.querySelector('[data-browse-root]');
     const detailRoot = document.querySelector('[data-detail-root]');
@@ -122,10 +171,9 @@ function initCreateForm(form) {
             const ownerKey = result.owner_key || '';
             if (id) {
                 // Сохраняем owner_key в localStorage для будущего доступа
-                    localStorage.setItem('poll_owner_key_' + id, ownerKey);
-                    const storageKey = type === 'quiz' ? 'quiz_owner_key_' : 'poll_owner_key_';
-                    localStorage.setItem(storageKey + id, ownerKey);
-                }
+                localStorage.setItem('poll_owner_key_' + id, ownerKey);
+                const storageKey = type === 'quiz' ? 'quiz_owner_key_' : 'poll_owner_key_';
+                localStorage.setItem(storageKey + id, ownerKey);
                 // Перенаправляем на get.php с флагом создателя
                 window.location.href = 'get.php?id=' + id + '&type=' + type + '&creator=1';
             }
@@ -1401,79 +1449,6 @@ async function createPollLink(pollId, ownerKey, name, type = 'poll') {
     } catch (e) {
         showToast(e.message || 'Не удалось создать ссылку', 'error');
     }
-}
-
-// Функции авторизации
-function getCurrentUser() {
-    try {
-        const user = localStorage.getItem('votely_user');
-        return user ? JSON.parse(user) : null;
-    } catch (e) {
-        return null;
-    }
-}
-
-function logoutUser() {
-    localStorage.removeItem('votely_user');
-    fetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
-    window.location.href = 'login.php';
-}
-
-function updateUserNav() {
-    const user = getCurrentUser();
-    const navRight = document.querySelector('.nav__right');
-    if (!navRight) return;
-    
-    if (user) {
-        navRight.innerHTML = `
-            <div class="dropdown dropdown--right" data-dropdown>
-                <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
-                    👤 ${escapeHtml(user.name || user.email)}
-                </button>
-                <div class="dropdown__menu" role="menu">
-                    <a class="dropdown__item" href="browse.php?type=poll" role="menuitem">Мои опросы</a>
-                    <a class="dropdown__item" href="#" role="menuitem" onclick="logoutUser(); return false;">Выйти</a>
-                </div>
-            </div>
-        `;
-    } else {
-        navRight.innerHTML = `
-            <div class="dropdown dropdown--right" data-dropdown>
-                <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">Войти</button>
-                <div class="dropdown__menu" role="menu">
-                    <a class="dropdown__item" href="register.php" role="menuitem">Регистрация</a>
-                    <a class="dropdown__item" href="login.php" role="menuitem">Авторизация</a>
-                </div>
-            </div>
-        `;
-    }
-    
-    // Reinitialize dropdowns
-    setTimeout(() => {
-        document.querySelectorAll('[data-dropdown]').forEach(dropdown => {
-            const trigger = dropdown.querySelector('.dropdown__trigger');
-            const menu = dropdown.querySelector('.dropdown__menu');
-            if (!trigger || !menu) return;
-            
-            trigger.onclick = (e) => {
-                e.stopPropagation();
-                const isOpen = menu.getAttribute('aria-expanded') === 'true';
-                document.querySelectorAll('.dropdown__menu').forEach(m => {
-                    m.setAttribute('aria-expanded', 'false');
-                    m.closest('.dropdown').classList.remove('dropdown--open');
-                });
-                if (!isOpen) {
-                    menu.setAttribute('aria-expanded', 'true');
-                    dropdown.classList.add('dropdown--open');
-                }
-            };
-            
-            document.addEventListener('click', () => {
-                menu.setAttribute('aria-expanded', 'false');
-                dropdown.classList.remove('dropdown--open');
-            });
-        });
-    }, 100);
 }
 
 // Инициализация при загрузке страницы

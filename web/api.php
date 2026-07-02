@@ -1,9 +1,13 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 0);
+ini_set('display_errors', 1);
 ini_set('output_buffering', 'Off');
 @ini_set('zlib.output_compression', '0');
-@ob_end_clean();
+
+// Читаем тело запроса ДО любой обработки
+$rawInput = file_get_contents("php://input");
+$body = json_decode($rawInput, true);
+
 header("Content-Type: application/json; charset=utf-8");
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 
@@ -28,7 +32,6 @@ try {
 
 $method = $_SERVER["REQUEST_METHOD"];
 $path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
-$body = json_decode(file_get_contents("php://input"), true);
 
 // Rate limiting
 $ip = $_SERVER["REMOTE_ADDR"] ?? "unknown";
@@ -890,9 +893,13 @@ function authMe($pdo) {
         echo json_encode(["authenticated" => false]);
         return;
     }
-    $stmt = $pdo->prepare("SELECT id::text, username, first_name FROM telegram_users WHERE id = :id LIMIT 1");
+    $stmt = $pdo->prepare("SELECT id::text, name, email FROM users WHERE id = :id LIMIT 1");
     $stmt->execute([":id" => $userId]);
     $user = $stmt->fetch();
+    if (!$user) {
+        echo json_encode(["authenticated" => false]);
+        return;
+    }
     echo json_encode(["authenticated" => true, "user" => $user]);
 }
     
@@ -936,7 +943,7 @@ function telegramAuth($pdo) {
         return;
     }
     
-    // Save/update user
+    // Save/update telegram user
     $stmt = $pdo->prepare("INSERT INTO telegram_users (id, username, first_name, last_name, photo_url, auth_date, updated_at) 
         VALUES (:id, :username, :first_name, :last_name, :photo_url, to_timestamp(:auth_date), NOW())
         ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username, first_name=EXCLUDED.first_name, last_name=EXCLUDED.last_name, photo_url=EXCLUDED.photo_url, auth_date=to_timestamp(EXCLUDED.auth_date), updated_at=NOW()");
@@ -949,18 +956,32 @@ function telegramAuth($pdo) {
         ":auth_date" => $authDate
     ]);
     
+    // Get or create user in users table
+    $email = "telegram_" . $userId . "@local";
+    $stmt = $pdo->prepare("INSERT INTO users (telegram_id, name, email, password_hash, created_at) 
+        VALUES (:tid, :name, :email, '', NOW())
+        ON CONFLICT (telegram_id) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id::text");
+    $stmt->execute([
+        ":tid" => $userId,
+        ":name" => $body["first_name"] ?? $body["username"] ?? "Telegram User",
+        ":email" => $email
+    ]);
+    $userRow = $stmt->fetch();
+    $userUuid = $userRow["id"];
+    
     // Create session
     $token = bin2hex(random_bytes(32));
     $expiresAt = time() + (30 * 24 * 60 * 60); // 30 days
     $tokenHash = hash("sha256", "session:" . $token);
     $stmt = $pdo->prepare("INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES (:uid, :th, to_timestamp(:exp))");
-    $stmt->execute([":uid" => $userId, ":th" => $tokenHash, ":exp" => $expiresAt]);
+    $stmt->execute([":uid" => $userUuid, ":th" => $tokenHash, ":exp" => $expiresAt]);
     
     // Set cookie
     $sig = hash_hmac("sha256", "session:" . $token, getenv("HASH_SECRET") ?: "dev-secret");
     setcookie("votely_session", "$token.$sig", $expiresAt, "/", "", false, true);
     
-    echo json_encode(["success" => true, "user" => ["id" => $userId, "username" => $body["username"] ?? ""]]);
+    echo json_encode(["success" => true, "user" => ["id" => $userUuid, "username" => $body["username"] ?? ""]]);
 }
 
 function executeSQL($pdo) {
@@ -1143,6 +1164,12 @@ function deleteQuizLink($pdo, $quizId, $linkId) {
 function registerUser($pdo) {
     global $body;
     
+    if ($body === null) {
+        http_response_code(400);
+        echo json_encode(["message" => "Пустое тело запроса"]);
+        exit;
+    }
+    
     $email = trim($body["email"] ?? "");
     $password = $body["password"] ?? "";
     $name = trim($body["name"] ?? "");
@@ -1208,6 +1235,12 @@ function registerUser($pdo) {
     
 function loginUser($pdo) {
     global $body;
+    
+    if ($body === null) {
+        http_response_code(400);
+        echo json_encode(["message" => "Пустое тело запроса"]);
+        exit;
+    }
     
     $email = trim($body["email"] ?? "");
     $password = $body["password"] ?? "";
