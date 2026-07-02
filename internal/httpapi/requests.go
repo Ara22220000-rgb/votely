@@ -45,7 +45,7 @@ type votePollRequest struct {
 	OptionID string `json:"option_id"`
 }
 
-func (r createPollRequest) toInput(ownerUserID int64, ownerKeyHash string) (store.PollInput, error) {
+func (r createPollRequest) toInput(ownerUserID string, ownerKeyHash string) (store.PollInput, error) {
 	title, err := validateText(r.Title, "Название опроса", maxTitleLength, true)
 	if err != nil {
 		return store.PollInput{}, err
@@ -88,7 +88,7 @@ func (r createPollRequest) toInput(ownerUserID int64, ownerKeyHash string) (stor
 	}, nil
 }
 
-func (r createQuizRequest) toInput(ownerUserID int64, ownerKeyHash string) (store.QuizInput, error) {
+func (r createQuizRequest) toInput(ownerUserID string, ownerKeyHash string) (store.QuizInput, error) {
 	title, err := validateText(r.Title, "Название викторины", maxTitleLength, true)
 	if err != nil {
 		return store.QuizInput{}, err

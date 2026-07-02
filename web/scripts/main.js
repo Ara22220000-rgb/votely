@@ -1,6 +1,7 @@
 ﻿
 document.querySelectorAll('[data-dropdown]').forEach((dropdown) => {
     const trigger = dropdown.querySelector('.dropdown__trigger');
+ 
     const setExpanded = (expanded) => { trigger?.setAttribute('aria-expanded', String(expanded)); };
     dropdown.addEventListener('mouseenter', () => setExpanded(true));
     dropdown.addEventListener('mouseleave', () => setExpanded(false));
@@ -121,8 +122,9 @@ function initCreateForm(form) {
             const ownerKey = result.owner_key || '';
             if (id) {
                 // Сохраняем owner_key в localStorage для будущего доступа
-                if (ownerKey) {
                     localStorage.setItem('poll_owner_key_' + id, ownerKey);
+                    const storageKey = type === 'quiz' ? 'quiz_owner_key_' : 'poll_owner_key_';
+                    localStorage.setItem(storageKey + id, ownerKey);
                 }
                 // Перенаправляем на get.php с флагом создателя
                 window.location.href = 'get.php?id=' + id + '&type=' + type + '&creator=1';
@@ -390,11 +392,11 @@ function renderDetail(container, data, type, id) {
         <div class="viewer__content"></div>
     `;
     const content = container.querySelector('.viewer__content');
-    if (type === 'quiz') {
-        renderQuizView(content, data);
-    } else {
-        renderPollView(content, data, id);
-    }
+        if (type === 'quiz') {
+            renderQuizView(content, data, data.id || id);
+        } else {
+            renderPollView(content, data, id);
+        }
 }
     
 function renderPollView(container, data, id) {
@@ -472,6 +474,7 @@ function renderPollView(container, data, id) {
                 const params = new URLSearchParams(window.location.search);
                 let utmSource = params.get('utm_source') || '';
                 const utmMedium = params.get('utm_medium') || '';
+                const shareLinkId = params.get('share_link_id') || localStorage.getItem('share_link_id_' + id) || '';
                 
                 // Если нет utm_source, определяем по Referer заголовку
                 if (!utmSource) {
@@ -539,7 +542,8 @@ function renderPollView(container, data, id) {
                     body: JSON.stringify({ 
                         option_id: sel.value,
                         utm_source: utmSource,
-                        utm_medium: utmMedium
+                        utm_medium: utmMedium,
+                        share_link_id: shareLinkId || null
                     })
                 });
                 // Запоминаем, что пользователь проголосовал
@@ -556,8 +560,8 @@ function renderPollView(container, data, id) {
         container.appendChild(form);
     }
 }
-    
-function renderQuizView(container, data) {
+
+function renderQuizView(container, data, quizId) {
     const quizDiv = document.createElement('div');
     quizDiv.className = 'quiz-view';
     
@@ -571,10 +575,14 @@ function renderQuizView(container, data) {
     answersDiv.className = 'quiz-answers';
     const answers = data.answers || [];
     
+    // Находим ID вопроса из данных (если есть)
+    const questionId = data.question_id || '';
+    
     answers.forEach((a, i) => {
         const lbl = document.createElement('label');
         lbl.className = 'quiz-answer-option';
         lbl.dataset.correct = a.is_correct;
+        lbl.dataset.answerId = a.id || '';
         lbl.innerHTML = `
             <input type="radio" name="ans" value="${i}">
             <span>${a.text}</span>
@@ -595,7 +603,7 @@ function renderQuizView(container, data) {
     
     quizDiv.append(questionDiv, answersDiv, btn, feedback);
     
-    btn.onclick = () => {
+    btn.onclick = async () => {
         const sel = quizDiv.querySelector('input:checked');
         if (!sel) {
             showToast('Выберите вариант ответа', 'error');
@@ -604,6 +612,28 @@ function renderQuizView(container, data) {
         
         const selectedLabel = sel.closest('.quiz-answer-option');
         const isCorrect = selectedLabel.dataset.correct === 'true';
+        const answerId = selectedLabel.dataset.answerId || '';
+        
+        // Отправляем статистику на сервер
+        if (quizId && questionId) {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const shareLinkId = params.get('share_link_id') || localStorage.getItem('share_link_id_' + quizId) || '';
+                await apiJSON('/api/v1/quizzes/' + quizId + '/attempt' + window.location.search, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question_id: questionId,
+                        answer_id: answerId || null,
+                        utm_source: params.get('utm_source') || '',
+                        utm_medium: params.get('utm_medium') || '',
+                        share_link_id: shareLinkId || null
+                    })
+                });
+            } catch (err) {
+                console.error('Не удалось отправить статистику:', err);
+            }
+        }
         
         // Показываем результат
         feedback.style.display = 'block';
@@ -672,13 +702,18 @@ function initGetPage() {
         shareUrlInput.value = shareUrl;
         shareSection.hidden = false;
         
-        // Используем сохранённый ключ или генерируем новый
-        const ownerKey = storedOwnerKey || btoa('owner-' + id + '-secret').replace(/=/g, '');
-        const statsUrl = `stats.php?id=${id}&key=${ownerKey}`;
+        // Получаем owner_key из localStorage (для опросов и викторин)
+        const ownerKey = storedOwnerKey || localStorage.getItem('quiz_owner_key_' + id);
+        if (!ownerKey) {
+            shareSection.hidden = true;
+            return;
+        }
+        const statsUrl = `stats.php?id=${id}&type=${type}&owner_key=${encodeURIComponent(ownerKey)}`;
         
         const statsBtn = document.getElementById('stats-link-btn');
         if (statsBtn) {
             statsBtn.href = statsUrl;
+            statsBtn.hidden = false;
         }
         
         if (copyBtn) {
@@ -690,6 +725,53 @@ function initGetPage() {
                     copyBtn.innerHTML = '<span class="copy-icon">📋</span> Копировать';
                 }, 2000);
             });
+        }
+        
+        // Загружаем именованные ссылки
+        loadPollLinks(id, ownerKey);
+        
+        // Обработчик создания ссылки
+        const createLinkBtn = document.getElementById('create-link-btn');
+        const linkNameInput = document.getElementById('link-name');
+        if (createLinkBtn && linkNameInput) {
+            createLinkBtn.addEventListener('click', () => {
+                const name = linkNameInput.value.trim();
+                if (!name) {
+                    showToast('Введите название ссылки', 'error');
+                    return;
+                }
+                createPollLink(id, ownerKey, name, type);
+                linkNameInput.value = '';
+            });
+        }
+        
+        // Обработчик tooltip
+        const helpBtn = document.getElementById('links-help-btn');
+        const tooltip = document.getElementById('links-tooltip');
+        if (helpBtn && tooltip) {
+            helpBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                tooltip.hidden = !tooltip.hidden;
+            });
+            
+            // Закрытие при клике вне
+            document.addEventListener('click', (e) => {
+                if (!tooltip.hidden && !helpBtn.contains(e.target) && !tooltip.contains(e.target)) {
+                    tooltip.hidden = true;
+                }
+            });
+            
+            // Предотвращаем закрытие при клике внутри tooltip
+            tooltip.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        }
+        
+        // Сохраняем share_link_id из URL
+        const shareLinkId = params.get('share_link_id');
+        if (shareLinkId) {
+            localStorage.setItem('share_link_id_' + id, shareLinkId);
         }
     }
 }
@@ -734,7 +816,7 @@ async function loadVoteData(id, type, content, titleEl) {
 function initStatsPage() {
     const params = new URLSearchParams(window.location.search);
     const id = params.get('id');
-    const ownerKey = params.get('key');
+    const ownerKey = params.get('owner_key') || params.get('key');
     const content = document.getElementById('stats-content');
     const titleEl = document.getElementById('stats-title');
     
@@ -759,37 +841,126 @@ function initStatsPage() {
 }
 
 async function loadStats(id, ownerKey, content, titleEl) {
+    const params = new URLSearchParams(window.location.search);
+    const type = params.get('type') || 'poll';
+    const plural = type === 'quiz' ? 'quizzes' : 'polls';
+    
     try {
-        const data = await apiJSON('/api/v1/polls/' + id + '/stats?owner_key=' + encodeURIComponent(ownerKey));
+        const data = await apiJSON('/api/v1/' + plural + '/' + id + '/stats?owner_key=' + encodeURIComponent(ownerKey));
         
-        if (!data || !data.poll) {
+        if (!data || (!data.poll && !data.quiz)) {
             throw new Error('Нет доступа');
         }
         
-        const poll = data.poll;
+        const item = data.poll || data.quiz;
+        const isQuiz = type === 'quiz';
         titleEl.innerHTML = `
-            <span class="type-icon">📊</span>
-            <span class="type-text">${escapeHtml(poll.title || 'Опрос')}</span>
+            <span class="type-icon">${isQuiz ? '🧠' : '📊'}</span>
+            <span class="type-text">${escapeHtml(item.title || (isQuiz ? 'Викторина' : 'Опрос'))}</span>
         `;
         
-        renderStats(content, data);
+        renderStats(content, data, type);
     } catch (e) {
         console.error('Ошибка загрузки статистики:', e);
+        
+        // Проверяем, не ошибка ли это авторизации
+        const errorMsg = e.message || '';
+        const isAuthError = errorMsg.includes('Нет доступа') || errorMsg.includes('ключ');
+        
         content.innerHTML = `
             <div class="viewer-empty">
-                <div class="viewer-empty-icon">❌</div>
+                <div class="viewer-empty-icon">🔒</div>
                 <p>Нет доступа к статистике</p>
                 <p style="margin-top: 12px; font-size: 16px; color: #6b6e73;">
-                    ${escapeHtml(e.message)}
+                    ${isAuthError ? 'Только создатель опроса может просматривать статистику.' : escapeHtml(e.message)}
                 </p>
+                ${isAuthError ? `
+                    <div style="margin-top: 20px; display: flex; gap: 12px; justify-content: center;">
+                        <a href="login.php?redirect=${encodeURIComponent(window.location.href)}" class="primary-button">
+                            Войти
+                        </a>
+                        <a href="javascript:history.back()" class="ghost-button">
+                            Назад
+                        </a>
+                    </div>
+                ` : `
+                    <a href="javascript:history.back()" class="ghost-button" style="margin-top: 20px; display: inline-flex;">
+                        Назад
+                    </a>
+                `}
             </div>
         `;
         if (titleEl) titleEl.textContent = 'Ошибка';
     }
 }
 
-function renderStats(content, data) {
-    const { poll, options, total_votes, analytics } = data;
+function renderStats(content, data, type) {
+    const isQuiz = type === 'quiz';
+    const poll = data.poll;
+    const quiz = data.quiz;
+    const item = poll || quiz;
+    
+    if (isQuiz && data.questions) {
+        // Статистика викторины
+        const totalAttempts = data.total_attempts || 0;
+        
+        let html = `
+            <div class="stats-overview">
+                <div class="metric-card metric-card--total">
+                    <div class="metric-card__icon">🎯</div>
+                    <div class="metric-card__value">${totalAttempts.toLocaleString()}</div>
+                    <div class="metric-card__label">Правильных ответов</div>
+                </div>
+            </div>
+            
+            <div class="stats-section">
+                <h2 class="stats-section__title">📋 Вопросы и ответы</h2>
+        `;
+        
+        data.questions.forEach((q, qIdx) => {
+            html += `<div class="quiz-question-stats"><h3>Вопрос ${qIdx + 1}: ${escapeHtml(q.question_text)}</h3>`;
+            
+            q.answers.forEach(a => {
+                const percent = a.percent || 0;
+                html += `
+                    <div class="result-option">
+                        <div class="result-bar" style="width: ${percent}%; background: ${a.is_correct ? '#5caf70' : '#cf5c8a'}"></div>
+                        <div class="result-content">
+                            <span>${escapeHtml(a.text)} ${a.is_correct ? '✅' : ''}</span>
+                            <span class="result-votes">${a.attempts} попыток</span>
+                            <span class="result-percent">${percent}% правильных</span>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += `</div>`;
+        });
+        
+        html += `</div>`;
+        
+        // Analytics
+        if (data.analytics) {
+            if (data.analytics.browsers && data.analytics.browsers.length > 0) {
+                html += renderPieChartSection('🌐 Браузеры', data.analytics.browsers, 'browser');
+            }
+            if (data.analytics.os && data.analytics.os.length > 0) {
+                html += renderPieChartSection('💻 Операционные системы', data.analytics.os, 'os');
+            }
+            if (data.analytics.devices && data.analytics.devices.length > 0) {
+                html += renderPieChartSection('📱 Устройства', data.analytics.devices, 'device');
+            }
+            if (data.analytics.locations && data.analytics.locations.length > 0) {
+                html += renderPieChartSection('🌍 География', data.analytics.locations, 'location');
+            }
+        }
+        
+        content.innerHTML = html;
+        return;
+    }
+    
+    // Статистика опроса (старый код)
+    const { options, total_votes, analytics } = data;
     
     let html = `
         <div class="stats-overview">
@@ -841,15 +1012,20 @@ function renderStats(content, data) {
         if (analytics.locations && analytics.locations.length > 0) {
             html += renderPieChartSection('🌍 География', analytics.locations, 'location');
         }
-    }
         
+        // Share Links
+        if (analytics.share_links && analytics.share_links.length > 0) {
+            html += renderPieChartSection('🔗 Именованные ссылки', analytics.share_links, 'share_link');
+        }
+    }
+    
     content.innerHTML = html;
 }
 
 function renderPieChartSection(title, items, type) {
     const total = items.reduce((sum, item) => sum + parseInt(item.count), 0);
     const colors = ['#5caf70', '#8a5caf', '#5c9caf', '#cf5caf', '#cfa55c', '#5ccf8a', '#cf5c8a', '#5ccfdd'];
-    
+
     // Генерируем SVG pie chart
     let svgPaths = '';
     let cumulativePercent = 0;
@@ -964,14 +1140,58 @@ function getItemIcon(name, type) {
         return '🌐';
     }
     
+    if (type === 'share_link') {
+        const linkIcons = {
+            'telegram': '✈️',
+            'tg': '✈️',
+            'vk': '💙',
+            'vkontakte': '💙',
+            'ok': '🟠',
+            'odnoklassniki': '🟠',
+            'twitter': '🐦',
+            'x': '🐦',
+            'facebook': '📘',
+            'fb': '📘',
+            'instagram': '📷',
+            'insta': '📷',
+            'tiktok': '🎵',
+            'tik': '🎵',
+            'youtube': '▶️',
+            'yt': '▶️',
+            'email': '📧',
+            'почта': '📧',
+            'sms': '💬',
+            'qr': '📱',
+            'qr-код': '📱',
+            'website': '🌐',
+            'site': '🌐',
+            'web': '🌐',
+            'custom': '🔗'
+        };
+        const key = name.toLowerCase().trim();
+        
+        // Проверяем точное совпадение
+        if (linkIcons[key]) return linkIcons[key];
+        
+        // Проверяем частичное совпадение
+        for (const [k, icon] of Object.entries(linkIcons)) {
+            if (key.includes(k)) return icon;
+        }
+        
+        return '🔗';
+    }
+    
     return '📊';
 }
 
-// Копирование ссылки для get.php
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    updateUserNav();
+});
 function copyShareUrl(source) {
     const shareUrlInput = document.getElementById('share-url');
     if (!shareUrlInput) return;
-    
+
     const baseUrl = shareUrlInput.value.split('?')[0];
     const params = new URLSearchParams(window.location.search);
     const id = params.get('id');
@@ -990,3 +1210,273 @@ function copyShareUrl(source) {
         showToast('Не удалось скопировать', 'error');
     });
 }
+
+// Функции авторизации
+function getCurrentUser() {
+    try {
+        const user = localStorage.getItem('votely_user');
+        return user ? JSON.parse(user) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function logoutUser() {
+    localStorage.removeItem('votely_user');
+    fetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
+    window.location.href = 'login.php';
+}
+
+function updateUserNav() {
+    const user = getCurrentUser();
+    const navRight = document.querySelector('.nav__right');
+    if (!navRight) return;
+    
+    if (user) {
+        navRight.innerHTML = `
+            <div class="dropdown dropdown--right" data-dropdown>
+                <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
+                    👤 ${escapeHtml(user.name || user.email)}
+                </button>
+                <div class="dropdown__menu" role="menu">
+                    <a class="dropdown__item" href="browse.php?type=poll" role="menuitem">Мои опросы</a>
+                    <a class="dropdown__item" href="#" role="menuitem" onclick="logoutUser(); return false;">Выйти</a>
+                </div>
+            </div>
+        `;
+    } else {
+        navRight.innerHTML = `
+            <div class="dropdown dropdown--right" data-dropdown>
+                <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">Войти</button>
+                <div class="dropdown__menu" role="menu">
+                    <a class="dropdown__item" href="register.php" role="menuitem">Регистрация</a>
+                    <a class="dropdown__item" href="login.php" role="menuitem">Авторизация</a>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Reinitialize dropdowns
+    document.querySelectorAll('[data-dropdown]').forEach(initDropdown);
+}
+
+function initDropdown(dropdown) {
+    const trigger = dropdown.querySelector('.dropdown__trigger');
+    const menu = dropdown.querySelector('.dropdown__menu');
+    if (!trigger || !menu) return;
+    
+    trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = menu.getAttribute('aria-expanded') === 'true';
+        
+        // Close all other dropdowns
+        document.querySelectorAll('.dropdown__menu').forEach(m => {
+            m.setAttribute('aria-expanded', 'false');
+            m.closest('.dropdown').classList.remove('dropdown--open');
+        });
+        
+        if (!isOpen) {
+            menu.setAttribute('aria-expanded', 'true');
+            dropdown.classList.add('dropdown--open');
+        }
+    });
+    
+    document.addEventListener('click', () => {
+        menu.setAttribute('aria-expanded', 'false');
+        dropdown.classList.remove('dropdown--open');
+    });
+}
+
+// Загрузка именованных ссылок
+async function loadPollLinks(pollId, ownerKey, type = 'poll') {
+    const linksList = document.getElementById('links-list');
+    if (!linksList) return;
+    
+    try {
+        const plural = type === 'quiz' ? 'quizzes' : 'polls';
+        const data = await apiJSON(`/api/v1/${plural}/${pollId}/links?owner_key=${encodeURIComponent(ownerKey)}`);
+        renderPollLinks(linksList, data.items || [], pollId, ownerKey, type);
+    } catch (e) {
+        console.error('Ошибка загрузки ссылок:', e);
+        linksList.innerHTML = '<p style="color: #6b6e73; font-size: 14px;">Не удалось загрузить ссылки</p>';
+    }
+}
+
+function renderPollLinks(container, items, pollId, ownerKey, type = 'poll') {
+    if (!container) return;
+    
+    if (items.length === 0) {
+        container.innerHTML = '<p style="color: #6b6e73; font-size: 14px;">Пока нет именованных ссылок. Создайте первую!</p>';
+        return;
+    }
+    
+    container.innerHTML = '';
+    const baseUrl = window.location.href.split('?')[0];
+    const itemType = new URLSearchParams(window.location.search).get('type') || type;
+    
+    items.forEach(link => {
+        const linkUrl = `${baseUrl}?id=${pollId}&type=${itemType}&share_link_id=${link.id}`;
+        const div = document.createElement('div');
+        div.className = 'link-item';
+        div.innerHTML = `
+            <div class="link-item__info">
+                <span class="link-item__name">${escapeHtml(link.name)}</span>
+            </div>
+            <div class="link-item__actions">
+                <button class="link-item__btn link-item__btn--copy" data-link-url="${escapeHtml(linkUrl)}">
+                    📋 Копировать
+                </button>
+                <button class="link-item__btn link-item__btn--delete" data-link-id="${link.id}" data-type="${type}">
+                    🗑️ Удалить
+                </button>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+    
+    // Обработчики кнопок
+    container.querySelectorAll('.link-item__btn--copy').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const url = btn.dataset.linkUrl;
+            navigator.clipboard.writeText(url).then(() => {
+                btn.innerHTML = '✅ Скопировано!';
+                setTimeout(() => {
+                    btn.innerHTML = '📋 Копировать';
+                }, 2000);
+            });
+        });
+    });
+    
+    container.querySelectorAll('.link-item__btn--delete').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            if (!confirm('Удалить эту ссылку?')) return;
+            const linkId = btn.dataset.linkId;
+            const itemType = btn.dataset.type || 'poll';
+            const plural = itemType === 'quiz' ? 'quizzes' : 'polls';
+            try {
+                await apiJSON(`/api/v1/${plural}/${pollId}/links/${linkId}?owner_key=${encodeURIComponent(ownerKey)}`, {
+                    method: 'DELETE'
+                });
+                loadPollLinks(pollId, ownerKey, itemType);
+            } catch (e) {
+                showToast('Не удалось удалить ссылку', 'error');
+            }
+        });
+    });
+}
+
+async function createPollLink(pollId, ownerKey, name, type = 'poll') {
+    // Определяем utm_source из названия
+    const lowerName = name.toLowerCase();
+    let utmSource = 'custom';
+    
+    if (lowerName.includes('tele') || lowerName.includes('tg')) utmSource = 'telegram';
+    else if (lowerName.includes('vk') || lowerName.includes('vkontakte')) utmSource = 'vk';
+    else if (lowerName.includes('ok') || lowerName.includes('odnoklassniki')) utmSource = 'ok';
+    else if (lowerName.includes('twit') || lowerName.includes('x.com')) utmSource = 'twitter';
+    else if (lowerName.includes('face') || lowerName.includes('fb')) utmSource = 'facebook';
+    else if (lowerName.includes('insta')) utmSource = 'instagram';
+    else if (lowerName.includes('tiktok') || lowerName.includes('tik')) utmSource = 'tiktok';
+    else if (lowerName.includes('youtube') || lowerName.includes('yt')) utmSource = 'youtube';
+    else if (lowerName.includes('email') || lowerName.includes('почта')) utmSource = 'email';
+    else if (lowerName.includes('sms')) utmSource = 'sms';
+    else if (lowerName.includes('qr') || lowerName.includes('qr-')) utmSource = 'qr';
+    else if (lowerName.includes('site') || lowerName.includes('web')) utmSource = 'website';
+    
+    const plural = type === 'quiz' ? 'quizzes' : 'polls';
+    
+    try {
+        const data = await apiJSON(`/api/v1/${plural}/${pollId}/links?owner_key=${encodeURIComponent(ownerKey)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: name,
+                utm_source: utmSource,
+                utm_medium: 'shared'
+            })
+        });
+        
+        showToast('Ссылка создана', 'success');
+        loadPollLinks(pollId, ownerKey, type);
+    } catch (e) {
+        showToast(e.message || 'Не удалось создать ссылку', 'error');
+    }
+}
+
+// Функции авторизации
+function getCurrentUser() {
+    try {
+        const user = localStorage.getItem('votely_user');
+        return user ? JSON.parse(user) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function logoutUser() {
+    localStorage.removeItem('votely_user');
+    fetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
+    window.location.href = 'login.php';
+}
+
+function updateUserNav() {
+    const user = getCurrentUser();
+    const navRight = document.querySelector('.nav__right');
+    if (!navRight) return;
+    
+    if (user) {
+        navRight.innerHTML = `
+            <div class="dropdown dropdown--right" data-dropdown>
+                <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
+                    👤 ${escapeHtml(user.name || user.email)}
+                </button>
+                <div class="dropdown__menu" role="menu">
+                    <a class="dropdown__item" href="browse.php?type=poll" role="menuitem">Мои опросы</a>
+                    <a class="dropdown__item" href="#" role="menuitem" onclick="logoutUser(); return false;">Выйти</a>
+                </div>
+            </div>
+        `;
+    } else {
+        navRight.innerHTML = `
+            <div class="dropdown dropdown--right" data-dropdown>
+                <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">Войти</button>
+                <div class="dropdown__menu" role="menu">
+                    <a class="dropdown__item" href="register.php" role="menuitem">Регистрация</a>
+                    <a class="dropdown__item" href="login.php" role="menuitem">Авторизация</a>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Reinitialize dropdowns
+    setTimeout(() => {
+        document.querySelectorAll('[data-dropdown]').forEach(dropdown => {
+            const trigger = dropdown.querySelector('.dropdown__trigger');
+            const menu = dropdown.querySelector('.dropdown__menu');
+            if (!trigger || !menu) return;
+            
+            trigger.onclick = (e) => {
+                e.stopPropagation();
+                const isOpen = menu.getAttribute('aria-expanded') === 'true';
+                document.querySelectorAll('.dropdown__menu').forEach(m => {
+                    m.setAttribute('aria-expanded', 'false');
+                    m.closest('.dropdown').classList.remove('dropdown--open');
+                });
+                if (!isOpen) {
+                    menu.setAttribute('aria-expanded', 'true');
+                    dropdown.classList.add('dropdown--open');
+                }
+            };
+            
+            document.addEventListener('click', () => {
+                menu.setAttribute('aria-expanded', 'false');
+                dropdown.classList.remove('dropdown--open');
+            });
+        });
+    }, 100);
+}
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    updateUserNav();
+});

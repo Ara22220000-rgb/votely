@@ -1,0 +1,1 @@
+PS> docker-compose down -v

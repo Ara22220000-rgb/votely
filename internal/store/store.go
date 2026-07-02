@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -110,7 +111,7 @@ type PollInput struct {
 	Title            string
 	Description      string
 	Options          []string
-	OwnerUserID      int64
+	OwnerUserID      string
 	OwnerKeyHash     string
 	IsAnonymous      bool
 	ShuffleOptions   bool
@@ -122,7 +123,7 @@ type QuizInput struct {
 	Title            string
 	Description      string
 	Questions        []QuizQuestionInput
-	OwnerUserID      int64
+	OwnerUserID      string
 	OwnerKeyHash     string
 	AllowedCountries []string
 	EndsAt           *time.Time
@@ -243,7 +244,7 @@ func (s *Store) CreatePoll(ctx context.Context, input PollInput) (CreatedEntity,
 	var id string
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO polls (title, description, owner_user_id, owner_key_hash, is_anonymous, shuffle_options, allowed_countries, ends_at)
-		VALUES ($1, $2, nullif($3, 0), nullif($4, ''), $5, $6, $7, $8) RETURNING id`,
+		VALUES ($1, $2, nullif($3, ''), nullif($4, ''), $5, $6, $7, $8) RETURNING id::text`,
 		strings.TrimSpace(input.Title),
 		strings.TrimSpace(input.Description),
 		input.OwnerUserID,
@@ -283,7 +284,7 @@ func (s *Store) CreateQuiz(ctx context.Context, input QuizInput) (CreatedEntity,
 	var quizID string
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO quizzes (title, description, owner_user_id, owner_key_hash, allowed_countries, ends_at)
-		VALUES ($1, $2, nullif($3, 0), nullif($4, ''), $5, $6) RETURNING id`,
+		VALUES ($1, $2, nullif($3, ''), nullif($4, ''), $5, $6) RETURNING id::text`,
 		strings.TrimSpace(input.Title),
 		strings.TrimSpace(input.Description),
 		input.OwnerUserID,
@@ -512,13 +513,13 @@ func (s *Store) RecordTrafficEvent(ctx context.Context, event TrafficEvent) erro
 	return err
 }
 
-func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, userID int64) (PollStats, error) {
+func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, userID string) (PollStats, error) {
 	var allowed bool
 	if err := s.db.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM polls
 			WHERE id = $1 AND (
-				owner_key_hash = nullif($2, '')
+				owner_key_hash IS NOT DISTINCT FROM nullif($2, '')
 				OR ($3::bigint <> 0 AND owner_user_id = $3)
 			)
 		)`,
@@ -724,15 +725,15 @@ func (s *Store) UpsertTelegramUser(ctx context.Context, user TelegramUser) error
 	return err
 }
 
-func (s *Store) CreateSession(ctx context.Context, userID int64, tokenHash string, expiresAt time.Time) error {
+func (s *Store) CreateSession(ctx context.Context, userID string, tokenHash string, expiresAt time.Time) error {
 	_, err := s.db.Exec(ctx, `INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`, userID, tokenHash, expiresAt)
 	return err
 }
 
-func (s *Store) SessionUserID(ctx context.Context, tokenHash string) (int64, error) {
-	var userID int64
-	if err := s.db.QueryRow(ctx, `SELECT user_id FROM user_sessions WHERE token_hash = $1 AND expires_at > now()`, tokenHash).Scan(&userID); err != nil {
-		return 0, err
+func (s *Store) SessionUserID(ctx context.Context, tokenHash string) (string, error) {
+	var userID string
+	if err := s.db.QueryRow(ctx, `SELECT user_id::text FROM user_sessions WHERE token_hash = $1 AND expires_at > now()`, tokenHash).Scan(&userID); err != nil {
+		return "", err
 	}
 	return userID, nil
 }
@@ -784,6 +785,59 @@ func scanList(rows pgx.Rows) ([]ListItem, error) {
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+type User struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Email     string    `json:"email"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (s *Store) CreateUser(ctx context.Context, name, email, passwordHash string) (*User, error) {
+	var user User
+	if err := s.db.QueryRow(ctx, `
+		INSERT INTO users (name, email, password_hash, created_at)
+		VALUES ($1, $2, $3, now())
+		RETURNING id, name, email, created_at`,
+		name, email, passwordHash,
+	).Scan(&user.ID, &user.Name, &user.Email, &user.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, string, error) {
+	var user User
+	var passwordHash string
+	if err := s.db.QueryRow(ctx, `
+		SELECT id, name, email, password_hash, created_at
+		FROM users
+		WHERE email = $1`,
+		email,
+	).Scan(&user.ID, &user.Name, &user.Email, &passwordHash, &user.CreatedAt); err != nil {
+		return nil, "", err
+	}
+	return &user, passwordHash, nil
+}
+
+func (s *Store) GetOrCreateUserByTelegramID(ctx context.Context, telegramID int64, firstName, username string) (*User, error) {
+	var user User
+	email := fmt.Sprintf("telegram_%d@local", telegramID)
+	err := s.db.QueryRow(ctx, `
+		INSERT INTO users (telegram_id, name, email, password_hash, created_at)
+		VALUES ($1, $2, $3, '', now())
+		ON CONFLICT (telegram_id) DO UPDATE SET name = excluded.name
+		RETURNING id::text, name, email, created_at`,
+		telegramID,
+		firstName,
+		email,
+	).Scan(&user.ID, &user.Name, &user.Email, &user.CreatedAt)
+	
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 func rollback(ctx context.Context, tx pgx.Tx) {

@@ -82,8 +82,8 @@
                             Войти
                         </button>
                         <div class="dropdown__menu" role="menu">
-                            <a class="dropdown__item" href="#" role="menuitem">Регистрация</a>
-                            <a class="dropdown__item" href="#" role="menuitem">Авторизация</a>
+                            <a class="dropdown__item" href="register.php" role="menuitem">Регистрация</a>
+                            <a class="dropdown__item" href="login.php" role="menuitem">Авторизация</a>
                         </div>
                     </div>
                 </div>

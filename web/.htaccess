@@ -1,11 +1,12 @@
 RewriteEngine On
 
-# Все запросы к /api/v1/* направляем в api.php
-RewriteCond %{REQUEST_URI} ^/api/
-RewriteRule ^(.*)$ api.php [L,QSA]
+# API запросы -> api.php
+RewriteRule ^api/v1(.*)$ api.php [QSA,L]
 
-# Если файл существует, отдаём его
+# Статические файлы и директории пропускаем
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
+
+# Остальное -> index.php
 RewriteRule ^ index.php [L]
 

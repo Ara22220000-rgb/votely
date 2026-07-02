@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
 
 	"votely/internal/store"
 )
@@ -54,6 +55,8 @@ func NewServer(cfg ServerConfig) *http.Server {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", api.health)
+	mux.HandleFunc("POST /api/v1/auth/register", api.register)
+	mux.HandleFunc("POST /api/v1/auth/login", api.login)
 	mux.HandleFunc("GET /api/v1/polls", api.listPolls)
 	mux.HandleFunc("POST /api/v1/polls", api.createPoll)
 	mux.HandleFunc("GET /api/v1/polls/{id}", api.getPoll)
@@ -90,6 +93,105 @@ type apiServer struct {
 
 func (s *apiServer) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+type registerRequest struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+func (s *apiServer) register(w http.ResponseWriter, r *http.Request) {
+	var req registerRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	email := strings.TrimSpace(req.Email)
+	password := req.Password
+
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", "Имя обязательно.")
+		return
+	}
+	if email == "" || len(email) > 256 || !strings.Contains(email, "@") {
+		writeError(w, http.StatusBadRequest, "validation_error", "Некорректный email.")
+		return
+	}
+	if len(password) < 6 {
+		writeError(w, http.StatusBadRequest, "validation_error", "Пароль должен быть минимум 6 символов.")
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		s.logger.Error("password hashing failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать аккаунт.")
+		return
+	}
+
+	user, err := s.store.CreateUser(r.Context(), name, email, string(hashedPassword))
+	if err != nil {
+		s.logger.Error("create user failed", "error", err)
+		if strings.Contains(err.Error(), "users_email_key") {
+			writeError(w, http.StatusConflict, "email_exists", "Email уже зарегистрирован.")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать аккаунт.")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"user": map[string]any{
+			"id":    user.ID,
+			"name":  user.Name,
+			"email": user.Email,
+		},
+	})
+}
+
+func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+
+	email := strings.TrimSpace(req.Email)
+	password := req.Password
+
+	if email == "" || password == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", "Email и пароль обязательны.")
+		return
+	}
+
+	user, storedHash, err := s.store.GetUserByEmail(r.Context(), email)
+	if err != nil {
+		s.logger.Error("get user failed", "error", err)
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Неверный email или пароль.")
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password)); err != nil {
+		s.logger.Error("password comparison failed", "error", err)
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Неверный email или пароль.")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user": map[string]any{
+			"id":    user.ID,
+			"name":  user.Name,
+			"email": user.Email,
+		},
+	})
 }
 
 
@@ -395,13 +497,22 @@ func (s *apiServer) telegramAuth(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось сохранить пользователя.")
 		return
 	}
+	
+	// Получаем или создаём пользователя в users
+	dbUser, err := s.store.GetOrCreateUserByTelegramID(r.Context(), userID, payload["first_name"], payload["username"])
+	if err != nil {
+		s.logger.Error("get or create user failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать пользователя.")
+		return
+	}
+	
 	token, err := randomHex(32)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать сессию.")
 		return
 	}
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	if err := s.store.CreateSession(r.Context(), userID, keyedHash(s.hashSecret, "session:"+token), expiresAt); err != nil {
+	if err := s.store.CreateSession(r.Context(), dbUser.ID, keyedHash(s.hashSecret, "session:"+token), expiresAt); err != nil {
 		s.logger.Error("session create failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать сессию.")
 		return
@@ -414,7 +525,11 @@ func (s *apiServer) telegramAuth(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"id": userID, "username": user.Username, "first_name": user.FirstName})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":       dbUser.ID,
+		"username": user.Username,
+		"first_name": user.FirstName,
+	})
 }
 
 func (s *apiServer) getQuiz(w http.ResponseWriter, r *http.Request) {
@@ -534,18 +649,18 @@ func (s *apiServer) voterToken(w http.ResponseWriter, r *http.Request) (string, 
 	return token, nil
 }
 
-func (s *apiServer) sessionUserID(r *http.Request) int64 {
+func (s *apiServer) sessionUserID(r *http.Request) string {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
-		return 0
+		return ""
 	}
 	token, ok := verifySignedVoterToken(s.hashSecret, cookie.Value)
 	if !ok {
-		return 0
+		return ""
 	}
 	userID, err := s.store.SessionUserID(r.Context(), keyedHash(s.hashSecret, "session:"+token))
 	if err != nil {
-		return 0
+		return ""
 	}
 	return userID
 }

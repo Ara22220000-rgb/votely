@@ -5,9 +5,11 @@ RUN apt-get update && apt-get install -y libpq-dev && \
     docker-php-ext-install pdo pdo_pgsql pgsql && \
     rm -rf /var/lib/apt/lists/*
 
-
 # Включение mod_rewrite для Apache
 RUN a2enmod rewrite
+
+# Разрешение .htaccess в /var/www/html
+RUN sed -i 's/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
 
 # Копирование файлов проекта
 COPY web/ /var/www/html/

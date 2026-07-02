@@ -1,9 +1,11 @@
-
-
 <?php
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
+ini_set('output_buffering', 'Off');
+@ini_set('zlib.output_compression', '0');
+@ob_end_clean();
 header("Content-Type: application/json; charset=utf-8");
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 
 $dbHost = getenv("PG_HOST") ?: "postgres";
 $dbPort = getenv("PG_PORT") ?: "5432";
@@ -53,10 +55,11 @@ function getSessionUser($pdo) {
     $sig = $parts[1];
     $expectedSig = hash_hmac("sha256", "session:" . $token, getenv("HASH_SECRET") ?: "dev-secret");
     if (!hash_equals($expectedSig, $sig)) return null;
-    $stmt = $pdo->prepare("SELECT user_id FROM user_sessions WHERE token = :t AND expires_at > NOW()");
-    $stmt->execute([":t" => $token]);
+    $tokenHash = hash("sha256", "session:" . $token);
+    $stmt = $pdo->prepare("SELECT user_id FROM user_sessions WHERE token_hash = :t AND expires_at > NOW()");
+    $stmt->execute([":t" => $tokenHash]);
     $row = $stmt->fetch();
-    return $row ? (int)$row["user_id"] : null;
+    return $row ? $row["user_id"] : null;
 }
 
 switch (true) {
@@ -78,6 +81,9 @@ switch (true) {
     case $method === "GET" && preg_match("#^/api/v1/quizzes/([^/]+)$#", $path, $m):
         getQuiz($pdo, $m[1]);
         break;
+    case $method === "POST" && preg_match("#^/api/v1/quizzes/([^/]+)/attempt$#", $path, $m):
+        submitQuizAttempt($pdo, $m[1]);
+        break;
     case $method === "POST" && $path === "/api/v1/quizzes":
         createQuiz($pdo);
         break;
@@ -89,6 +95,36 @@ switch (true) {
         break;
     case $method === "GET" && preg_match("#^/api/v1/polls/([^/]+)/stats$#", $path, $m):
         pollStats($pdo, $m[1]);
+        break;
+    case $method === "GET" && preg_match("#^/api/v1/quizzes/([^/]+)/stats$#", $path, $m):
+        quizStats($pdo, $m[1]);
+        break;
+    case $method === "GET" && preg_match("#^/api/v1/quizzes/([^/]+)/links$#", $path, $m):
+        getQuizLinks($pdo, $m[1]);
+        break;
+    case $method === "POST" && preg_match("#^/api/v1/quizzes/([^/]+)/links$#", $path, $m):
+        createQuizLink($pdo, $m[1]);
+        break;
+    case $method === "GET" && preg_match("#^/api/v1/quizzes/([^/]+)/links/([^/]+)$#", $path, $m):
+        deleteQuizLink($pdo, $m[1], $m[2]);
+        break;
+    case $method === "GET" && preg_match("#^/api/v1/polls/([^/]+)/links$#", $path, $m):
+        getPollLinks($pdo, $m[1]);
+        break;
+    case $method === "POST" && preg_match("#^/api/v1/polls/([^/]+)/links$#", $path, $m):
+        createPollLink($pdo, $m[1]);
+        break;
+    case $method === "GET" && preg_match("#^/api/v1/polls/([^/]+)/links/([^/]+)$#", $path, $m):
+        deletePollLink($pdo, $m[1], $m[2]);
+        break;
+    case $method === "POST" && $path === "/api/v1/auth/register":
+        registerUser($pdo);
+        break;
+    case $method === "POST" && $path === "/api/v1/auth/login":
+        loginUser($pdo);
+        break;
+    case $method === "POST" && $path === "/api/v1/auth/logout":
+        logoutUser($pdo);
         break;
     case $method === "GET" && $path === "/api/v1/auth/me":
         authMe($pdo);
@@ -153,6 +189,12 @@ function votePoll($pdo, $pollId) {
     // UTM из body (от JavaScript) или URL
     $utmSource = $body["utm_source"] ?? ($_GET["utm_source"] ?? "");
     $utmMedium = $body["utm_medium"] ?? ($_GET["utm_medium"] ?? "");
+    $shareLinkId = $body["share_link_id"] ?? ($_GET["share_link_id"] ?? null);
+    
+    // Валидируем share_link_id
+    if ($shareLinkId && !preg_match('#^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$#i', $shareLinkId)) {
+        $shareLinkId = null;
+    }
     
     // Если JavaScript не определил, пробуем серверное определение по Referer заголовку
     if (!$utmSource && $referrer) {
@@ -223,11 +265,12 @@ function votePoll($pdo, $pollId) {
                 ip_country,
                 utm_source, 
                 utm_medium,
+                share_link_id,
                 device_type,
                 os_type,
                 browser_type
             ) VALUES (
-                :pid, :oid, :ua, :ip, :ic, :us, :um, :dt, :os, :br
+                :pid, :oid, :ua, :ip, :ic, :us, :um, :slid, :dt, :os, :br
             )
         ");
         $stmt->execute([
@@ -238,6 +281,7 @@ function votePoll($pdo, $pollId) {
             ":ic" => $ipCountry,
             ":us" => $utmSource,
             ":um" => $utmMedium,
+            ":slid" => $shareLinkId,
             ":dt" => $deviceType,
             ":os" => $os,
             ":br" => $browser
@@ -398,6 +442,93 @@ function detectCountry($ip) {
     return '';
 }
     
+function submitQuizAttempt($pdo, $quizId) {
+    global $body;
+    
+    if (!$body) {
+        http_response_code(400);
+        echo json_encode(["message" => "Empty body"]);
+        exit;
+    }
+    
+    $questionId = $body["question_id"] ?? "";
+    $answerId = $body["answer_id"] ?? null;
+    
+    if (!preg_match('#^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$#i', $questionId)) {
+        http_response_code(400);
+        echo json_encode(["message" => "Неверный ID вопроса"]);
+        exit;
+    }
+    
+    // Собираем метаданные (аналогично votePoll)
+    $userAgent = $_SERVER["HTTP_USER_AGENT"] ?? "";
+    $ip = $_SERVER["REMOTE_ADDR"] ?? "unknown";
+    $utmSource = $body["utm_source"] ?? ($_GET["utm_source"] ?? "");
+    $utmMedium = $body["utm_medium"] ?? ($_GET["utm_medium"] ?? "");
+    $shareLinkId = $body["share_link_id"] ?? ($_GET["share_link_id"] ?? null);
+    
+    // Определяем тип устройства и ОС
+    $deviceType = detectDeviceType($userAgent);
+    $os = detectOS($userAgent);
+    $browser = detectBrowser($userAgent);
+    $ipCountry = detectCountry($ip);
+    
+    // Проверяем правильность ответа
+    $isCorrect = false;
+    if ($answerId) {
+        $stmt = $pdo->prepare("SELECT is_correct FROM quiz_answers WHERE id = :aid");
+        $stmt->execute([":aid" => $answerId]);
+        $row = $stmt->fetch();
+        if ($row) {
+            $isCorrect = (bool)$row['is_correct'];
+        }
+    }
+    
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO quiz_attempts (
+                quiz_id, 
+                question_id, 
+                answer_id,
+                user_agent, 
+                ip_address, 
+                ip_country,
+                utm_source, 
+                utm_medium,
+                device_type,
+                os_type,
+                browser_type,
+                is_correct,
+                share_link_id
+            ) VALUES (
+                :qid, :quesid, :aid, :ua, :ip, :ic, :us, :um, :dt, :os, :br, :corr, :slid
+            )
+        ");
+        $stmt->execute([
+            ":qid" => $quizId,
+            ":quesid" => $questionId,
+            ":aid" => $answerId,
+            ":ua" => $userAgent,
+            ":ip" => $ip,
+            ":ic" => $ipCountry,
+            ":us" => $utmSource,
+            ":um" => $utmMedium,
+            ":dt" => $deviceType,
+            ":os" => $os,
+            ":br" => $browser,
+            ":corr" => $isCorrect ? "true" : "false",
+            ":slid" => $shareLinkId
+        ]);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode(["message" => "DB error: " . $e->getMessage()]);
+        exit;
+    }
+    
+    echo json_encode(["success" => true, "is_correct" => $isCorrect]);
+    exit;
+}
+
 function createPoll($pdo) {
     global $body;
     if (empty($body['title'])) {
@@ -405,14 +536,18 @@ function createPoll($pdo) {
         echo json_encode(['message' => 'Title required']);
         exit;
     }
+    
+    // Получаем ID пользователя если авторизован
+    $userId = getSessionUser($pdo);
+    
     $pdo->beginTransaction();
     try {
         // Генерируем owner_key для доступа к статистике
         $ownerKey = bin2hex(random_bytes(32));
         $ownerKeyHash = hash('sha256', 'owner:' . $ownerKey);
         
-        $stmt = $pdo->prepare("INSERT INTO polls (title, description, owner_key_hash) VALUES (:t, :d, :okh) RETURNING id::text");
-        $stmt->execute([":t" => $body["title"], ":d" => $body["description"] ?? "", ":okh" => $ownerKeyHash]);
+        $stmt = $pdo->prepare("INSERT INTO polls (title, description, owner_key_hash, owner_user_id) VALUES (:t, :d, :okh, :uid) RETURNING id::text");
+        $stmt->execute([":t" => $body["title"], ":d" => $body["description"] ?? "", ":okh" => $ownerKeyHash, ":uid" => $userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         $id = $row['id'];
 
@@ -467,13 +602,21 @@ function createQuiz($pdo) {
         echo json_encode(['message' => 'Fields required']);
         exit;
     }
+    
+    // Получаем ID пользователя если авторизован
+    $userId = getSessionUser($pdo);
+    
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare("INSERT INTO quizzes (title, description) VALUES (:t, :d) RETURNING id::text");
-        $stmt->execute([":t" => $body["title"], ":d" => $body["description"] ?? ""]);
+        // Генерируем owner_key для доступа к статистике
+        $ownerKey = bin2hex(random_bytes(32));
+        $ownerKeyHash = hash('sha256', 'owner:' . $ownerKey);
+        
+        $stmt = $pdo->prepare("INSERT INTO quizzes (title, description, owner_key_hash, owner_user_id) VALUES (:t, :d, :okh, :uid) RETURNING id::text");
+        $stmt->execute([":t" => $body["title"], ":d" => $body["description"] ?? "", ":okh" => $ownerKeyHash, ":uid" => $userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         $qid = $row['id'];
-
+    
         $stmt = $pdo->prepare("INSERT INTO quiz_questions (quiz_id, question_text, position) VALUES (:qid, :txt, 1) RETURNING id::text");
         $stmt->execute([":qid" => $qid, ":txt" => $body["question"]]);
         $qRow = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -491,7 +634,7 @@ function createQuiz($pdo) {
             }
         }
         $pdo->commit();
-        echo json_encode(["id" => $qid]);
+        echo json_encode(["id" => $qid, "owner_key" => $ownerKey]);
         exit;
     } catch (Exception $e) {
         $pdo->rollBack();
@@ -500,7 +643,7 @@ function createQuiz($pdo) {
         exit;
     }
 }
-
+    
 function deleteItem($pdo, $type, $id) {
     if (($_SERVER["HTTP_AUTHORIZATION"] ?? "") !== "admin123") { http_response_code(401); return; }
     $table = ($type === "polls") ? "polls" : "quizzes";
@@ -511,18 +654,33 @@ function deleteItem($pdo, $type, $id) {
 
 function pollStats($pdo, $pollId) {
     $ownerKey = $_GET["owner_key"] ?? "";
-    if (!$ownerKey) { 
-        http_response_code(403); 
-        echo json_encode(["message" => "Требуется ключ владельца"]); 
-        exit;
+    
+    // Проверяем доступ: либо owner_key, либо пользователь создал опрос
+    $accessGranted = false;
+    
+    // Способ 1: owner_key
+    if ($ownerKey) {
+        $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+        $stmt = $pdo->prepare("SELECT id::text, owner_user_id FROM polls WHERE id = :pid AND owner_key_hash = :okh LIMIT 1");
+        $stmt->execute([":pid" => $pollId, ":okh" => $ownerKeyHash]);
+        $poll = $stmt->fetch();
+        if ($poll) $accessGranted = true;
     }
-    $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
-    $stmt = $pdo->prepare("SELECT id::text FROM polls WHERE id = :pid AND owner_key_hash = :okh LIMIT 1");
-    $stmt->execute([":pid" => $pollId, ":okh" => $ownerKeyHash]);
-    $accessGranted = $stmt->fetch();
+    
+    // Способ 2: авторизованный пользователь
     if (!$accessGranted) { 
+        $userId = getSessionUser($pdo);
+        if ($userId) {
+            $stmt = $pdo->prepare("SELECT id::text, owner_user_id FROM polls WHERE id = :pid AND owner_user_id = :uid LIMIT 1");
+            $stmt->execute([":pid" => $pollId, ":uid" => $userId]);
+            $poll = $stmt->fetch();
+            if ($poll) $accessGranted = true;
+        }
+    }
+    
+    if (!$accessGranted) {
         http_response_code(403); 
-        echo json_encode(["message" => "Неверный ключ владельца"]); 
+        echo json_encode(["message" => "Нет доступа к статистике. Только создатель опроса может просматривать статистику."]);
         exit;
     }
     
@@ -565,10 +723,160 @@ function pollStats($pdo, $pollId) {
     $locations = $stmt->fetchAll();
     if ($locations) $analytics['locations'] = $locations;
     
+    // Share Links Stats
+    $stmt = $pdo->prepare("
+        SELECT psl.name, COUNT(pv.id)::int as count
+        FROM poll_share_links psl
+        LEFT JOIN poll_votes pv ON pv.share_link_id = psl.id
+        WHERE psl.poll_id = :pid
+        GROUP BY psl.id, psl.name
+        ORDER BY count DESC
+    ");
+    $stmt->execute([":pid" => $pollId]);
+    $shareLinks = $stmt->fetchAll();
+    if ($shareLinks) $analytics['share_links'] = $shareLinks;
+    
     $result = [
         "poll" => $poll,
         "options" => $optionsWithPercent,
         "total_votes" => $totalVotes,
+        "analytics" => $analytics
+    ];
+    
+    echo json_encode($result, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+function quizStats($pdo, $quizId) {
+    $ownerKey = $_GET["owner_key"] ?? "";
+    
+    // Проверяем доступ: либо owner_key, либо пользователь создал викторину
+    $accessGranted = false;
+    
+    // Способ 1: owner_key
+    if ($ownerKey) {
+        $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+        $stmt = $pdo->prepare("SELECT id::text, owner_user_id FROM quizzes WHERE id = :pid AND owner_key_hash = :okh LIMIT 1");
+        $stmt->execute([":pid" => $quizId, ":okh" => $ownerKeyHash]);
+        $quiz = $stmt->fetch();
+        if ($quiz) $accessGranted = true;
+    }
+    
+    // Способ 2: авторизованный пользователь
+    if (!$accessGranted) { 
+        $userId = getSessionUser($pdo);
+        if ($userId) {
+            $stmt = $pdo->prepare("SELECT id::text, owner_user_id FROM quizzes WHERE id = :pid AND owner_user_id = :uid LIMIT 1");
+            $stmt->execute([":pid" => $quizId, ":uid" => $userId]);
+            $quiz = $stmt->fetch();
+            if ($quiz) $accessGranted = true;
+        }
+    }
+    
+    if (!$accessGranted) {
+        http_response_code(403); 
+        echo json_encode(["message" => "Нет доступа к статистике. Только создатель викторины может просматривать статистику."]);
+        exit;
+    }
+    
+    $stmt = $pdo->prepare("SELECT id::text, title, description FROM quizzes WHERE id = :id");
+    $stmt->execute([":id" => $quizId]);
+    $quiz = $stmt->fetch();
+    
+    // Получаем вопросы и ответы
+    $stmt = $pdo->prepare("SELECT qq.id::text as question_id, qq.question_text FROM quiz_questions qq WHERE qq.quiz_id = :qid ORDER BY qq.position");
+    $stmt->execute([":qid" => $quizId]);
+    $questions = $stmt->fetchAll();
+    
+    $quizStats = [];
+    $totalAttempts = 0;
+    
+    foreach ($questions as $question) {
+        $stmt = $pdo->prepare("
+            SELECT qa.id::text, qa.answer_text, qa.is_correct::bool as is_correct, 
+                   COUNT(qat.id)::int as attempts,
+                   COUNT(CASE WHEN qat.is_correct = true THEN 1 END)::int as correct
+            FROM quiz_answers qa
+            LEFT JOIN quiz_attempts qat ON qat.answer_id = qa.id
+            WHERE qa.question_id = :qid
+            GROUP BY qa.id, qa.answer_text, qa.is_correct, qa.position
+            ORDER BY qa.position
+        ");
+        $stmt->execute([":qid" => $question['question_id']]);
+        $answers = $stmt->fetchAll();
+        
+        $questionStats = [
+            'question_id' => $question['question_id'],
+            'question_text' => $question['question_text'],
+            'answers' => []
+        ];
+        
+        foreach ($answers as $answer) {
+            $attempts = (int)$answer['attempts'];
+            $correct = (int)$answer['correct'];
+            $percent = $attempts > 0 ? round($correct / $attempts * 100) : 0;
+            
+            $questionStats['answers'][] = [
+                'id' => $answer['id'],
+                'text' => $answer['answer_text'],
+                'is_correct' => (bool)$answer['is_correct'],
+                'attempts' => $attempts,
+                'correct' => $correct,
+                'percent' => $percent
+            ];
+            
+            if ($answer['is_correct']) {
+                $totalAttempts += $attempts;
+            }
+        }
+        
+        $quizStats[] = $questionStats;
+    }
+    
+    // Analytics
+    $analytics = [];
+    
+    // Browsers
+    $stmt = $pdo->prepare("SELECT COALESCE(browser_type, 'Other') as name, COUNT(DISTINCT id)::int as count FROM quiz_attempts WHERE quiz_id = :qid GROUP BY name ORDER BY count DESC");
+    $stmt->execute([":qid" => $quizId]);
+    $browsers = $stmt->fetchAll();
+    if ($browsers) $analytics['browsers'] = $browsers;
+    
+    // Operating Systems
+    $stmt = $pdo->prepare("SELECT COALESCE(os_type, 'Unknown') as name, COUNT(DISTINCT id)::int as count FROM quiz_attempts WHERE quiz_id = :qid GROUP BY name ORDER BY count DESC");
+    $stmt->execute([":qid" => $quizId]);
+    $osList = $stmt->fetchAll();
+    if ($osList) $analytics['os'] = $osList;
+    
+    // Devices
+    $stmt = $pdo->prepare("SELECT COALESCE(device_type, 'unknown') as name, COUNT(DISTINCT id)::int as count FROM quiz_attempts WHERE quiz_id = :qid GROUP BY name ORDER BY count DESC");
+    $stmt->execute([":qid" => $quizId]);
+    $devices = $stmt->fetchAll();
+    if ($devices) $analytics['devices'] = $devices;
+    
+    // Locations (Countries)
+    $stmt = $pdo->prepare("SELECT COALESCE(NULLIF(ip_country, ''), 'Unknown') as name, COUNT(DISTINCT id)::int as count FROM quiz_attempts WHERE quiz_id = :qid GROUP BY name ORDER BY count DESC LIMIT 15");
+    $stmt->execute([":qid" => $quizId]);
+    $locations = $stmt->fetchAll();
+    if ($locations) $analytics['locations'] = $locations;
+    
+    // Share Links
+    $stmt = $pdo->prepare("
+        SELECT COALESCE(qsl.name, 'direct') as name, COUNT(qat.id)::int as count 
+        FROM quiz_attempts qat
+        LEFT JOIN quiz_share_links qsl ON qat.share_link_id = qsl.id AND qsl.quiz_id = :qid
+        WHERE qat.quiz_id = :qid
+        GROUP BY qsl.name
+        ORDER BY count DESC
+    ");
+    $stmt->execute([":qid" => $quizId]);
+    $shareLinks = $stmt->fetchAll();
+    if ($shareLinks) $analytics['share_links'] = $shareLinks;
+    
+    $result = [
+        "quiz" => $quiz,
+        "questions" => $quizStats,
+        "total_attempts" => $totalAttempts,
         "analytics" => $analytics
     ];
     
@@ -582,7 +890,7 @@ function authMe($pdo) {
         echo json_encode(["authenticated" => false]);
         return;
     }
-    $stmt = $pdo->prepare("SELECT id, username, first_name FROM telegram_users WHERE id = :id");
+    $stmt = $pdo->prepare("SELECT id::text, username, first_name FROM telegram_users WHERE id = :id LIMIT 1");
     $stmt->execute([":id" => $userId]);
     $user = $stmt->fetch();
     echo json_encode(["authenticated" => true, "user" => $user]);
@@ -644,8 +952,9 @@ function telegramAuth($pdo) {
     // Create session
     $token = bin2hex(random_bytes(32));
     $expiresAt = time() + (30 * 24 * 60 * 60); // 30 days
-    $stmt = $pdo->prepare("INSERT INTO user_sessions (user_id, token, expires_at) VALUES (:uid, :token, to_timestamp(:exp))");
-    $stmt->execute([":uid" => $userId, ":token" => $token, ":exp" => $expiresAt]);
+    $tokenHash = hash("sha256", "session:" . $token);
+    $stmt = $pdo->prepare("INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES (:uid, :th, to_timestamp(:exp))");
+    $stmt->execute([":uid" => $userId, ":th" => $tokenHash, ":exp" => $expiresAt]);
     
     // Set cookie
     $sig = hash_hmac("sha256", "session:" . $token, getenv("HASH_SECRET") ?: "dev-secret");
@@ -667,5 +976,290 @@ function executeSQL($pdo) {
             echo json_encode(["affected_rows" => $pdo->exec($query)]);
         }
     } catch (Exception $e) { http_response_code(500); echo json_encode(["message" => $e->getMessage()]); }
+}
+
+function getPollLinks($pdo, $pollId) {
+    $ownerKey = $_GET["owner_key"] ?? "";
+    if (!$ownerKey) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Требуется ключ владельца"]); 
+        exit;
+    }
+    $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+    $stmt = $pdo->prepare("SELECT id::text FROM polls WHERE id = :pid AND owner_key_hash = :okh LIMIT 1");
+    $stmt->execute([":pid" => $pollId, ":okh" => $ownerKeyHash]);
+    if (!$stmt->fetch()) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Нет доступа"]); 
+        exit;
+    }
+    
+    $stmt = $pdo->prepare("SELECT id::text, name, utm_source, utm_medium, created_at::text FROM poll_share_links WHERE poll_id = :pid ORDER BY created_at DESC");
+    $stmt->execute([":pid" => $pollId]);
+    echo json_encode(["items" => $stmt->fetchAll()]);
+    exit;
+}
+
+function createPollLink($pdo, $pollId) {
+    global $body;
+    
+    $ownerKey = $_GET["owner_key"] ?? "";
+    if (!$ownerKey) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Требуется ключ владельца"]); 
+        exit;
+    }
+    $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+    $stmt = $pdo->prepare("SELECT id::text FROM polls WHERE id = :pid AND owner_key_hash = :okh LIMIT 1");
+    $stmt->execute([":pid" => $pollId, ":okh" => $ownerKeyHash]);
+    if (!$stmt->fetch()) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Нет доступа"]); 
+        exit;
+    }
+    
+    $name = trim($body["name"] ?? "");
+    if (empty($name)) {
+        http_response_code(400);
+        echo json_encode(["message" => "Укажите название ссылки"]);
+        exit;
+    }
+    
+    $utmSource = trim($body["utm_source"] ?? "");
+    $utmMedium = trim($body["utm_medium"] ?? "shared");
+    
+    $stmt = $pdo->prepare("INSERT INTO poll_share_links (poll_id, name, utm_source, utm_medium) VALUES (:pid, :name, :us, :um) RETURNING id::text");
+    $stmt->execute([":pid" => $pollId, ":name" => $name, ":us" => $utmSource, ":um" => $utmMedium]);
+    $row = $stmt->fetch();
+    
+    echo json_encode(["id" => $row["id"], "name" => $name, "utm_source" => $utmSource, "utm_medium" => $utmMedium]);
+    exit;
+}
+
+function deletePollLink($pdo, $pollId, $linkId) {
+    $ownerKey = $_GET["owner_key"] ?? "";
+    if (!$ownerKey) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Требуется ключ владельца"]); 
+        exit;
+    }
+    $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+    $stmt = $pdo->prepare("SELECT id::text FROM polls WHERE id = :pid AND owner_key_hash = :okh LIMIT 1");
+    $stmt->execute([":pid" => $pollId, ":okh" => $ownerKeyHash]);
+    if (!$stmt->fetch()) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Нет доступа"]); 
+        exit;
+    }
+    
+    $stmt = $pdo->prepare("DELETE FROM poll_share_links WHERE id = :lid AND poll_id = :pid");
+    $stmt->execute([":lid" => $linkId, ":pid" => $pollId]);
+    
+    echo json_encode(["success" => true]);
+    exit;
+}
+
+function getQuizLinks($pdo, $quizId) {
+    $ownerKey = $_GET["owner_key"] ?? "";
+    if (!$ownerKey) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Требуется ключ владельца"]); 
+        exit;
+    }
+    $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+    $stmt = $pdo->prepare("SELECT id::text FROM quizzes WHERE id = :pid AND owner_key_hash = :okh LIMIT 1");
+    $stmt->execute([":pid" => $quizId, ":okh" => $ownerKeyHash]);
+    if (!$stmt->fetch()) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Нет доступа"]); 
+        exit;
+    }
+    
+    $stmt = $pdo->prepare("SELECT id::text, name, utm_source, utm_medium, created_at::text FROM quiz_share_links WHERE quiz_id = :qid ORDER BY created_at DESC");
+    $stmt->execute([":qid" => $quizId]);
+    echo json_encode(["items" => $stmt->fetchAll()]);
+    exit;
+}
+
+function createQuizLink($pdo, $quizId) {
+    global $body;
+    
+    $ownerKey = $_GET["owner_key"] ?? "";
+    if (!$ownerKey) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Требуется ключ владельца"]); 
+        exit;
+    }
+    $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+    $stmt = $pdo->prepare("SELECT id::text FROM quizzes WHERE id = :pid AND owner_key_hash = :okh LIMIT 1");
+    $stmt->execute([":pid" => $quizId, ":okh" => $ownerKeyHash]);
+    if (!$stmt->fetch()) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Нет доступа"]); 
+        exit;
+    }
+    
+    $name = trim($body["name"] ?? "");
+    if (empty($name)) {
+        http_response_code(400);
+        echo json_encode(["message" => "Укажите название ссылки"]);
+        exit;
+    }
+    
+    $utmSource = trim($body["utm_source"] ?? "");
+    $utmMedium = trim($body["utm_medium"] ?? "shared");
+    
+    $stmt = $pdo->prepare("INSERT INTO quiz_share_links (quiz_id, name, utm_source, utm_medium) VALUES (:qid, :name, :us, :um) RETURNING id::text");
+    $stmt->execute([":qid" => $quizId, ":name" => $name, ":us" => $utmSource, ":um" => $utmMedium]);
+    $row = $stmt->fetch();
+    
+    echo json_encode(["id" => $row["id"], "name" => $name, "utm_source" => $utmSource, "utm_medium" => $utmMedium]);
+    exit;
+}
+
+function deleteQuizLink($pdo, $quizId, $linkId) {
+    $ownerKey = $_GET["owner_key"] ?? "";
+    if (!$ownerKey) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Требуется ключ владельца"]); 
+        exit;
+    }
+    $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+    $stmt = $pdo->prepare("SELECT id::text FROM quizzes WHERE id = :pid AND owner_key_hash = :okh LIMIT 1");
+    $stmt->execute([":pid" => $quizId, ":okh" => $ownerKeyHash]);
+    if (!$stmt->fetch()) { 
+        http_response_code(403); 
+        echo json_encode(["message" => "Нет доступа"]); 
+        exit;
+    }
+    
+    $stmt = $pdo->prepare("DELETE FROM quiz_share_links WHERE id = :lid AND quiz_id = :qid");
+    $stmt->execute([":lid" => $linkId, ":qid" => $quizId]);
+    
+    echo json_encode(["success" => true]);
+    exit;
+}
+
+function registerUser($pdo) {
+    global $body;
+    
+    $email = trim($body["email"] ?? "");
+    $password = $body["password"] ?? "";
+    $name = trim($body["name"] ?? "");
+    
+    if (!$email || !$password || !$name) {
+        http_response_code(400);
+        echo json_encode(["message" => "Заполните все поля"]);
+        exit;
+    }
+    
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        http_response_code(400);
+        echo json_encode(["message" => "Неверный формат email"]);
+        exit;
+    }
+    
+    if (strlen($password) < 6) {
+        http_response_code(400);
+        echo json_encode(["message" => "Пароль должен быть не менее 6 символов"]);
+        exit;
+    }
+    
+    // Проверяем существующего пользователя
+    $stmt = $pdo->prepare("SELECT id FROM users WHERE email = :email LIMIT 1");
+    $stmt->execute([":email" => strtolower($email)]);
+    if ($stmt->fetch()) {
+        http_response_code(400);
+        echo json_encode(["message" => "Пользователь с таким email уже существует"]);
+        exit;
+    }
+    
+    // Хэшируем пароль
+    $passwordHash = password_hash($password, PASSWORD_BCRYPT);
+    
+    try {
+        $stmt = $pdo->prepare("INSERT INTO users (email, password_hash, name) VALUES (:email, :ph, :name) RETURNING id::text, email, name");
+        $stmt->execute([
+            ":email" => strtolower($email),
+            ":ph" => $passwordHash,
+            ":name" => $name
+        ]);
+        $user = $stmt->fetch();
+        
+        // Создаём сессию
+        $token = bin2hex(random_bytes(32));
+        $expiresAt = time() + (30 * 24 * 60 * 60); // 30 дней
+        $tokenHash = hash("sha256", "session:" . $token);
+        $stmt = $pdo->prepare("INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES (:uid, :th, to_timestamp(:exp))");
+        $stmt->execute([":uid" => $user["id"], ":th" => $tokenHash, ":exp" => $expiresAt]);
+    
+        // Устанавливаем cookie
+        $sig = hash_hmac("sha256", "session:" . $token, getenv("HASH_SECRET") ?: "dev-secret");
+        setcookie("votely_session", "$token.$sig", $expiresAt, "/", "", false, true);
+        
+        echo json_encode(["success" => true, "user" => $user]);
+        exit;
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode(["message" => "Ошибка регистрации: " . $e->getMessage()]);
+        exit;
+    }
+}
+    
+function loginUser($pdo) {
+    global $body;
+    
+    $email = trim($body["email"] ?? "");
+    $password = $body["password"] ?? "";
+    
+    if (!$email || !$password) {
+        http_response_code(400);
+        echo json_encode(["message" => "Заполните все поля"]);
+        exit;
+    }
+    
+    // Ищем пользователя
+    $stmt = $pdo->prepare("SELECT id::text, email, name, password_hash FROM users WHERE email = :email LIMIT 1");
+    $stmt->execute([":email" => strtolower($email)]);
+    $user = $stmt->fetch();
+    
+    if (!$user || !password_verify($password, $user["password_hash"])) {
+        http_response_code(401);
+        echo json_encode(["message" => "Неверный email или пароль"]);
+        exit;
+    }
+    
+    // Создаём сессию
+    $token = bin2hex(random_bytes(32));
+    $expiresAt = time() + (30 * 24 * 60 * 60); // 30 дней
+    $tokenHash = hash("sha256", "session:" . $token);
+    $stmt = $pdo->prepare("INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES (:uid, :th, to_timestamp(:exp))");
+    $stmt->execute([":uid" => $user["id"], ":th" => $tokenHash, ":exp" => $expiresAt]);
+    
+    // Устанавливаем cookie
+    $sig = hash_hmac("sha256", "session:" . $token, getenv("HASH_SECRET") ?: "dev-secret");
+    setcookie("votely_session", "$token.$sig", $expiresAt, "/", "", false, true);
+    
+    // Возвращаем данные без пароля
+    unset($user["password_hash"]);
+    echo json_encode(["success" => true, "user" => $user]);
+    exit;
+}
+
+function logoutUser($pdo) {
+    // Получаем токен из cookie
+    $cookie = $_COOKIE["votely_session"] ?? "";
+    if ($cookie) {
+        list($token) = explode(".", $cookie);
+        $tokenHash = hash("sha256", "session:" . $token);
+        $stmt = $pdo->prepare("DELETE FROM user_sessions WHERE token_hash = :token");
+        $stmt->execute([":token" => $tokenHash]);
+    }
+    
+    // Удаляем cookie
+    setcookie("votely_session", "", time() - 3600, "/");
+    
+    echo json_encode(["success" => true]);
+    exit;
 }
 ?>

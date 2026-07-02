@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Голосование · Votely</title>
+    <title>Вход · Votely</title>
     <link rel="icon" href="votely.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles/main.css">
-    <meta name="robots" content="noindex, nofollow">
 </head>
 <body>
     <div class="page">
@@ -76,68 +75,31 @@
         </header>
 
         <main class="creator">
-            <section class="creator__panel">
+            <section class="creator__panel" style="max-width: 450px; margin: 0 auto;">
                 <div class="creator__header">
-                    <div>
-                        <p class="creator__eyebrow">Голосование</p>
-                        <h1 class="creator__title" id="vote-title">Загрузка...</h1>
-                    </div>
+                    <p class="creator__eyebrow">Авторизация</p>
+                    <h1 class="creator__title">Вход в аккаунт</h1>
                 </div>
 
-                <div id="vote-content" class="viewer__content">
-                    <div class="viewer-empty">
-                        <div class="viewer-empty-icon">⏳</div>
-                        <p>Загрузка данных...</p>
+                <form id="login-form" class="creator-form" style="margin-top: 24px;">
+                    <div class="field" style="margin-bottom: 20px;">
+                        <label class="field__label" for="email">Email</label>
+                        <input type="email" id="email" name="email" class="field__control" placeholder="your@email.com" required>
                     </div>
-                </div>
 
-                <div id="share-section" class="share-section" hidden>
-                    <div class="share-box">
-                        <h3 class="share-title">📢 Поделиться опросом</h3>
-                        <div class="share-url-box">
-                            <input type="text" class="share-url-input" id="share-url" readonly>
-                            <button class="share-copy-btn" id="copy-link-btn" type="button">
-                                <span class="copy-icon">📋</span> Копировать
-                            </button>
-                        </div>
-                        <p class="share-hint">Отправьте эту ссылку участникам для голосования</p>
+                    <div class="field" style="margin-bottom: 20px;">
+                        <label class="field__label" for="password">Пароль</label>
+                        <input type="password" id="password" name="password" class="field__control" placeholder="••••••••" required minlength="6">
                     </div>
-                    
-                    <div class="share-box" style="margin-top: 16px;">
-                        <h3 class="share-title">
-                            🔗 Именованные ссылки
-                            </h3>
-                        
-                        <div class="tooltip-content" id="links-tooltip" hidden>
-                            <p style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700;">Зачем нужны именованные ссылки?</p>
-                            <p style="margin: 0 0 12px 0; font-size: 13px; color: #aeb0b4; line-height: 1.5;">
-                                Создавайте ссылки с названиями для разных платформ, чтобы отслеживать источники голосов в статистике.
-                            </p>
-                            <p style="margin: 0; font-size: 13px; color: #aeb0b4; line-height: 1.5;">
-                                <strong>Примеры:</strong> Telegram, VK, Email, Сайт, QR-код
-                            </p>
-                        </div>
-                        
-                        <div class="create-link-form">
-                            <input type="text" id="link-name" class="field__control" placeholder="Название (например: Telegram)" style="flex: 1; min-width: 200px;">
-                            <button class="primary-button" id="create-link-btn" type="button">
-                                <span>+</span> Создать
-                            </button>
-                        </div>
-                        
-                        <div id="links-list" class="links-list" style="margin-top: 12px;"></div>
-                    </div>
-                    
-                    <div class="share-box" style="margin-top: 16px; border-color: rgba(138, 92, 175, 0.3); background: linear-gradient(135deg, rgba(138, 92, 175, 0.1) 0%, rgba(138, 92, 175, 0.05) 100%);">
-                        <h3 class="share-title">📊 Статистика</h3>
-                        <div class="share-url-box">
-                            <a href="#" class="share-copy-btn" id="stats-link-btn" style="text-decoration: none; justify-content: center;">
-                                <span class="copy-icon">📈</span> Смотреть статистику
-                            </a>
-                        </div>
-                        <p class="share-hint">Диаграммы по устройствам, ОС и источникам</p>
-                    </div>
-                </div>
+
+                    <button type="submit" class="primary-button" style="width: 100%; justify-content: center; margin-bottom: 16px;">
+                        Войти
+                    </button>
+
+                    <p class="auth-switch-text" style="text-align: center; color: #6b6e73; font-size: 15px;">
+                        Нет аккаунта? <a href="register.php" style="color: var(--green); text-decoration: none; font-weight: 700;">Зарегистрироваться</a>
+                    </p>
+                </form>
             </section>
         </main>
 
@@ -162,7 +124,7 @@
                     <div class="footer__contact">
                         <a class="footer__email" href="mailto:help@votely.local">help@votely.local</a>
                         <div class="footer__social-row" aria-label="Социальные сети">
-                            <a class="footer__social" href="#" aria-label="Telegram">TG</a>
+                            <a class="footer__social" href="https://t.me/votely_net" aria-label="Telegram">TG</a>
                         </div>
                     </div>
                 </div>
@@ -174,8 +136,36 @@
 
     <script src="scripts/main.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            initGetPage();
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const btn = e.target.querySelector('button[type="submit"]');
+            
+            btn.disabled = true;
+            btn.textContent = 'Вход...';
+            
+            try {
+                const res = await fetch('/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                
+                if (!res.ok) throw new Error(data.message || 'Ошибка входа');
+                
+                // Сохраняем данные пользователя
+                localStorage.setItem('votely_user', JSON.stringify(data.user));
+                
+                // Перенаправляем на главную или туда, откуда пришли
+                const redirect = new URLSearchParams(window.location.search).get('redirect') || 'index.php';
+                window.location.href = redirect;
+            } catch (err) {
+                alert(err.message);
+                btn.disabled = false;
+                btn.textContent = 'Войти';
+            }
         });
     </script>
 </body>
