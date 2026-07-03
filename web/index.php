@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Votely</title>
     <link rel="icon" href="votely.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/main.css?v=2">
 </head>
 <body>
     <div class="page">

@@ -41,139 +41,8 @@ async function apiJSON(url, options = {}) {
             ...(options.headers || {})
         }
     });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || 'Ошибка запроса');
-    return data;
-}
-
-function setStatus(el, msg, kind) {
-    if (!el) return;
-    el.textContent = msg;
-    el.className = 'form-status ' + (kind ? 'is-' + kind : '');
-}
-
-function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>"']/g, (char) => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;'
-    }[char]));
-}
-
-function apiCollection(type) {
-    return type === 'quiz' ? 'quizzes' : 'polls';
-}
-
-async function initMyPollsPage(root) {
-    const list = root.querySelector('[data-list]');
-    try {
-        const state = await authReady;
-        if (!state.authenticated) {
-            renderMessage(list, 'Войдите через Telegram, чтобы увидеть свои опросы.', true);
-            openLoginFromConfig();
-            return;
-        }
-        const data = await apiJSON('/api/v1/me/polls');
-        renderMyPolls(list, data.items || []);
-    } catch (error) {
-        renderMessage(list, error.message, true);
-    }
-}
-
-function renderMyPolls(container, items) {
-    container.replaceChildren();
-    if (!items.length) {
-        renderMessage(container, 'У вас пока нет опросов.', false);
-        return;
-    }
-    items.forEach((item) => {
-        const card = document.createElement('article');
-        card.className = 'card card--poll';
-        card.innerHTML = `
-            <h2>${escapeHtml(item.title)}</h2>
-            <p>${escapeHtml(item.description || 'Опрос без описания')}</p>
-            <div class="card__meta">
-                <span>${item.total_votes || 0} голосов</span>
-                <a href="stats.php?id=${encodeURIComponent(item.id)}">Статистика</a>
-                <a href="view.php?type=poll&id=${encodeURIComponent(item.id)}">Открыть</a>
-            </div>
-        `;
-        container.append(card);
-    });
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    initToasts();
-    authReady = checkAuthStatus();
-
-    const createForm = document.querySelector('[data-create-form]');
-    const browseRoot = document.querySelector('[data-browse-root]');
-    const myPollsRoot = document.querySelector('[data-my-polls-root]');
-    const detailRoot = document.querySelector('[data-detail-root]');
-    const adminRoot = document.querySelector('[data-admin-root]');
-
-    if (createForm) initCreateForm(createForm);
-    if (browseRoot) initBrowsePage(browseRoot);
-    if (myPollsRoot) initMyPollsPage(myPollsRoot);
-    if (detailRoot) initDetailPage(detailRoot);
-    if (adminRoot) initAdminPanel(adminRoot);
-    initTelegramAuthUI();
-    initAuthGuards();
-});
-
-async function checkAuthStatus() {
-    try {
-        const data = await apiJSON('/api/v1/auth/me');
-        authState = { authenticated: !!data.authenticated, user: data.user || null, isAdmin: !!data.is_admin };
-        renderAuthControls();
-        return authState;
-    } catch (e) {
-        authState = { authenticated: false, user: null, isAdmin: false };
-        renderAuthControls();
-        return authState;
-    }
-}
-
-function renderAuthControls() {
-    document.querySelectorAll('.nav__right').forEach((root) => {
-        if (authState.authenticated) {
-            root.innerHTML = `
-                <div class="auth-profile dropdown dropdown--right is-auth" data-auth-profile>
-                    <button class="auth-profile__trigger dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
-                        ${userAvatar(authState.user)}
-                        <span>${escapeHtml(userDisplayName(authState.user))}</span>
-                    </button>
-                    <div class="dropdown__menu auth-profile__menu" role="menu">
-                        ${authState.isAdmin ? '<a class="dropdown__item" href="admin.php" role="menuitem">Админ панель</a>' : ''}
-                        <a class="dropdown__item" href="my-polls.php" role="menuitem">Мои опросы</a>
-                        <button class="dropdown__item auth-logout" type="button" role="menuitem" data-auth-logout>Выйти</button>
-                    </div>
-                </div>
-            `;
-        } else {
-            root.innerHTML = `
-                <button class="auth-login-button" type="button" data-auth-action="login">
-                    ${lastAuthAvatar()}
-                    <span>Войти</span>
-                </button>
-            `;
-        }
-    });
-    document.querySelectorAll('[data-auth-profile]').forEach((dropdown) => {
-        const trigger = dropdown.querySelector('.dropdown__trigger');
-        trigger?.addEventListener('click', () => {
-            const expanded = trigger.getAttribute('aria-expanded') === 'true';
-            trigger.setAttribute('aria-expanded', String(!expanded));
-            dropdown.classList.toggle('is-open', !expanded);
-        });
-    });
-    initTelegramAuthUI();
     initLogoutUI();
 }
-
-function userDisplayName(user) {
     const raw = user?.username || user?.first_name || 'Профиль';
     return String(raw).replace(/^@/, '').slice(0, 10);
 }
@@ -242,6 +111,42 @@ function initLogoutUI() {
     });
 }
 
+function renderAuthControls() {
+    document.querySelectorAll('.nav__right').forEach((root) => {
+        if (authState.authenticated) {
+            root.innerHTML = `
+                <div class="auth-profile dropdown dropdown--right is-auth" data-auth-profile>
+                    <button class="auth-profile__trigger dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
+                        ${userAvatar(authState.user)}
+                        <span>${escapeHtml(userDisplayName(authState.user))}</span>
+                    </button>
+                    <div class="dropdown__menu auth-profile__menu" role="menu">
+                        ${authState.isAdmin ? '<a class="dropdown__item" href="admin.php" role="menuitem">Админ панель</a>' : ''}
+                        <a class="dropdown__item" href="my-polls.php" role="menuitem">Мои опросы</a>
+                        <button class="dropdown__item auth-logout" type="button" role="menuitem" data-auth-logout>Выйти</button>
+                    </div>
+                </div>
+            `;
+        } else {
+            root.innerHTML = `
+                <button class="auth-login-button" type="button" data-auth-action="login">
+                    ${lastAuthAvatar()}
+                    <span>Войти</span>
+                </button>
+            `;
+        }
+    });
+    document.querySelectorAll('[data-auth-profile]').forEach((dropdown) => {
+        const trigger = dropdown.querySelector('.dropdown__trigger');
+        trigger?.addEventListener('click', () => {
+            const expanded = trigger.getAttribute('aria-expanded') === 'true';
+            trigger.setAttribute('aria-expanded', String(!expanded));
+            dropdown.classList.toggle('is-open', !expanded);
+        });
+    });
+    initLogoutUI();
+}
+
 function initAuthGuards() {
     document.addEventListener('click', async (event) => {
         const createLink = event.target.closest('a[href^="create.php"]');
@@ -298,7 +203,7 @@ function openTelegramAuthModal(botUsername) {
                     hash: data.hash
                 })
             });
-            persistLastAuthUser({ ...user, ...savedUser });
+            persistLastAuthUser(savedUser);
             modal.remove();
             authReady = checkAuthStatus();
             await authReady;
