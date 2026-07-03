@@ -1303,6 +1303,46 @@ a {
     accent-color: var(--green);
 }
 
+.privacy-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.privacy-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    background: #191a1c;
+    cursor: pointer;
+}
+
+.privacy-option input {
+    margin-top: 3px;
+    accent-color: var(--green);
+}
+
+.privacy-option span {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+}
+
+.privacy-option strong {
+    color: #f4f5f6;
+    font-size: 15px;
+}
+
+.privacy-option small {
+    color: var(--subtle);
+    font-size: 13px;
+    line-height: 1.35;
+}
+
 .stats-header,
 .stats-chart-section,
 .stats-analytics,
@@ -1347,6 +1387,11 @@ a {
     font-size: 16px;
     font-weight: 800;
     text-align: center;
+}
+
+.stats-empty--small {
+    font-size: 13px;
+    text-align: left;
 }
 
 .chart-tooltip {
@@ -1949,6 +1994,14 @@ a {
     display: flex;
     flex-direction: column;
     gap: 10px;
+}
+
+.share-links-panel {
+    display: grid;
+    gap: 16px;
+    margin-top: 24px;
+    padding-top: 22px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .link-item {

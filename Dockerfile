@@ -18,6 +18,7 @@ RUN { \
 
 # Копирование файлов проекта
 COPY web/ /var/www/html/
+COPY docker/php/apache.conf /etc/apache2/sites-available/000-default.conf
 COPY migrations/ /app/migrations/
 
 # Настройка прав

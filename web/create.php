@@ -111,6 +111,28 @@
 
                     <div class="creator-form__section" data-poll-fields>
                         <div class="creator-form__section-head">
+                            <h2 class="creator-form__subtitle">Доступ</h2>
+                        </div>
+                        <div class="privacy-options" role="radiogroup" aria-label="Доступ к опросу">
+                            <label class="privacy-option">
+                                <input type="radio" name="visibility" value="public" checked>
+                                <span>
+                                    <strong>Публичный</strong>
+                                    <small>Показывается в общем списке и поиске</small>
+                                </span>
+                            </label>
+                            <label class="privacy-option">
+                                <input type="radio" name="visibility" value="private">
+                                <span>
+                                    <strong>Приватный</strong>
+                                    <small>Открывается только по прямой ссылке владельца</small>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="creator-form__section" data-poll-fields>
+                        <div class="creator-form__section-head">
                             <h2 class="creator-form__subtitle">Варианты ответа</h2>
                             <button class="ghost-button" type="button" data-add-option>Добавить вариант ответа</button>
                         </div>

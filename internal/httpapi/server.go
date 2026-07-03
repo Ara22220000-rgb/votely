@@ -64,8 +64,12 @@ func NewServer(cfg ServerConfig) *http.Server {
 	mux.HandleFunc("GET /api/v1/me/polls", api.listMyPolls)
 	mux.HandleFunc("POST /api/v1/polls", api.createPoll)
 	mux.HandleFunc("GET /api/v1/polls/{id}", api.getPoll)
+	mux.HandleFunc("POST /api/v1/polls/{id}/visits", api.recordPollVisit)
 	mux.HandleFunc("POST /api/v1/polls/{id}/votes", api.votePoll)
 	mux.HandleFunc("GET /api/v1/polls/{id}/stats", api.pollStats)
+	mux.HandleFunc("GET /api/v1/polls/{id}/links", api.pollShareLinks)
+	mux.HandleFunc("POST /api/v1/polls/{id}/links", api.createPollShareLink)
+	mux.HandleFunc("DELETE /api/v1/polls/{id}/links/{link_id}", api.deletePollShareLink)
 	mux.HandleFunc("DELETE /api/v1/polls/{id}", api.adminOnly(api.deletePoll, true))
 	mux.HandleFunc("GET /api/v1/quizzes", api.listQuizzes)
 	mux.HandleFunc("POST /api/v1/quizzes", api.createQuiz)
@@ -81,6 +85,8 @@ func NewServer(cfg ServerConfig) *http.Server {
 	mux.HandleFunc("GET /api/v1/admin/items", api.adminOnly(api.adminItems, false))
 	mux.HandleFunc("DELETE /api/v1/admin/polls/{id}", api.adminOnly(api.deletePoll, true))
 	mux.HandleFunc("DELETE /api/v1/admin/quizzes/{id}", api.adminOnly(api.deleteQuiz, true))
+	mux.HandleFunc("GET /admin.php", api.adminPage(cfg.StaticDir))
+	mux.HandleFunc("GET /admin.html", api.adminPage(cfg.StaticDir))
 	mux.Handle("GET /", staticHandler(cfg.StaticDir))
 
 	return &http.Server{
@@ -159,6 +165,21 @@ func (s *apiServer) getPoll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
 		return
 	}
+	ownerKeyHash := s.ownerKeyHash(r)
+	visible, _, err := s.store.PollAccess(r.Context(), id, ownerKeyHash, s.sessionUserID(r), isAdminUser(s.sessionUserID(r)))
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "not_found", "Опрос не найден.")
+		return
+	}
+	if err != nil {
+		s.logger.Error("poll access failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось проверить доступ.")
+		return
+	}
+	if !visible {
+		writeError(w, http.StatusForbidden, "forbidden", "Опрос доступен только по приватной ссылке.")
+		return
+	}
 	poll, err := s.store.GetPoll(r.Context(), id, s.sessionUserID(r))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Опрос не найден.")
@@ -170,6 +191,30 @@ func (s *apiServer) getPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, poll)
+}
+
+func (s *apiServer) recordPollVisit(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !uuidPattern.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
+		return
+	}
+	visible, _, err := s.store.PollAccess(r.Context(), id, s.ownerKeyHash(r), s.sessionUserID(r), isAdminUser(s.sessionUserID(r)))
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "not_found", "Опрос не найден.")
+		return
+	}
+	if err != nil {
+		s.logger.Error("poll visit access failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось проверить доступ.")
+		return
+	}
+	if !visible {
+		writeError(w, http.StatusForbidden, "forbidden", "Опрос доступен только по приватной ссылке.")
+		return
+	}
+	s.recordTrafficEvent(r, "visit", id, "")
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *apiServer) listMyPolls(w http.ResponseWriter, r *http.Request) {
@@ -244,12 +289,8 @@ func (s *apiServer) pollStats(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
 		return
 	}
-	ownerKey := strings.TrimSpace(r.URL.Query().Get("owner_key"))
-	ownerKeyHash := ""
-	if ownerKey != "" {
-		ownerKeyHash = keyedHash(s.hashSecret, "owner:"+ownerKey)
-	}
-	stats, err := s.store.PollStats(r.Context(), id, ownerKeyHash, s.sessionUserID(r))
+	ownerKeyHash := s.ownerKeyHash(r)
+	stats, err := s.store.PollStats(r.Context(), id, ownerKeyHash, s.sessionUserID(r), isAdminUser(s.sessionUserID(r)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusForbidden, "forbidden", "Статистика доступна владельцу опроса.")
 		return
@@ -260,6 +301,80 @@ func (s *apiServer) pollStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
+}
+
+func (s *apiServer) pollShareLinks(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !uuidPattern.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
+		return
+	}
+	if !s.canManagePoll(r, id) {
+		writeError(w, http.StatusForbidden, "forbidden", "Ссылки доступны владельцу опроса.")
+		return
+	}
+	items, err := s.store.PollShareLinks(r.Context(), id)
+	if err != nil {
+		s.logger.Error("poll links failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить ссылки.")
+		return
+	}
+	for i := range items {
+		items[i].URL = s.pollLinkURL(r, id, items[i].Slug)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *apiServer) createPollShareLink(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !uuidPattern.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
+		return
+	}
+	if !s.canManagePoll(r, id) {
+		writeError(w, http.StatusForbidden, "forbidden", "Ссылки может создавать только владелец опроса.")
+		return
+	}
+	var req createShareLinkRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	input, err := req.toInput(id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	item, err := s.store.CreatePollShareLink(r.Context(), input)
+	if err != nil {
+		s.logger.Error("create poll link failed", "error", err)
+		writeError(w, http.StatusConflict, "link_exists", "Ссылка с таким названием уже есть.")
+		return
+	}
+	item.URL = s.pollLinkURL(r, id, item.Slug)
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *apiServer) deletePollShareLink(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	linkID := r.PathValue("link_id")
+	if !uuidPattern.MatchString(id) || !uuidPattern.MatchString(linkID) {
+		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
+		return
+	}
+	if !s.canManagePoll(r, id) {
+		writeError(w, http.StatusForbidden, "forbidden", "Ссылки может удалять только владелец опроса.")
+		return
+	}
+	if err := s.store.DeletePollShareLink(r.Context(), id, linkID); errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "not_found", "Ссылка не найдена.")
+		return
+	} else if err != nil {
+		s.logger.Error("delete poll link failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось удалить ссылку.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *apiServer) voteIdentity(w http.ResponseWriter, r *http.Request) (store.VoteIdentity, error) {
@@ -297,7 +412,7 @@ func shouldRecordTrafficEvent(r *http.Request) bool {
 		return false
 	}
 	ext := filepath.Ext(r.URL.Path)
-	return ext == "" || ext == ".html"
+	return ext == "" || ext == ".html" || ext == ".php"
 }
 
 func (s *apiServer) recordTrafficEvent(r *http.Request, eventType, pollID, optionID string) {
@@ -328,11 +443,22 @@ func (s *apiServer) trafficEvent(r *http.Request, eventType, pollID, optionID st
 	}
 	geo := ipGeo(r, ip)
 	query := r.URL.Query()
+	if pollID == "" {
+		pollID = query.Get("id")
+	}
+	shareLinkID := ""
+	if uuidPattern.MatchString(pollID) {
+		if slug := strings.TrimSpace(query.Get("link")); slug != "" {
+			if link, err := s.store.PollShareLinkBySlug(r.Context(), pollID, slug); err == nil {
+				shareLinkID = link.ID
+			}
+		}
+	}
 	return store.TrafficEvent{
 		EventType:      eventType,
 		Path:           limitStoredValue(r.URL.Path),
 		Method:         r.Method,
-		PollID:         pollID,
+		PollID:         safeUUID(pollID),
 		OptionID:       optionID,
 		VoterTokenHash: tokenHash,
 		IPHash:         keyedHash(s.hashSecret, "ip:"+ip),
@@ -345,6 +471,7 @@ func (s *apiServer) trafficEvent(r *http.Request, eventType, pollID, optionID st
 		UTMCampaign:    limitStoredShortValue(query.Get("utm_campaign")),
 		UTMTerm:        limitStoredShortValue(query.Get("utm_term")),
 		UTMContent:     limitStoredShortValue(query.Get("utm_content")),
+		ShareLinkID:    shareLinkID,
 		IPCountry:      geo.country,
 		IPRegion:       geo.region,
 		IPCity:         geo.city,
@@ -588,6 +715,34 @@ func (s *apiServer) adminOnly(next http.HandlerFunc, requireCSRF bool) http.Hand
 	}
 }
 
+func (s *apiServer) adminPage(staticDir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isAdminUser(s.sessionUserID(r)) {
+			http.Redirect(w, r, "/index.php", http.StatusFound)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(staticDir, filepath.Base(r.URL.Path)))
+	}
+}
+
+func (s *apiServer) ownerKeyHash(r *http.Request) string {
+	ownerKey := strings.TrimSpace(r.URL.Query().Get("owner_key"))
+	if ownerKey == "" {
+		return ""
+	}
+	return keyedHash(s.hashSecret, "owner:"+ownerKey)
+}
+
+func (s *apiServer) canManagePoll(r *http.Request, pollID string) bool {
+	userID := s.sessionUserID(r)
+	_, owner, err := s.store.PollAccess(r.Context(), pollID, s.ownerKeyHash(r), userID, isAdminUser(userID))
+	return err == nil && owner
+}
+
+func (s *apiServer) pollLinkURL(r *http.Request, pollID, slug string) string {
+	return absoluteBaseURL(r) + "/view.php?type=poll&id=" + pollID + "&link=" + slug + "&utm_source=" + slug + "&utm_medium=named"
+}
+
 func (s *apiServer) adminMe(w http.ResponseWriter, r *http.Request) {
 	userID := s.sessionUserID(r)
 	if !isAdminUser(userID) {
@@ -811,11 +966,28 @@ func cleanGeoValue(value string) string {
 }
 
 func requestURL(r *http.Request) string {
+	return absoluteBaseURL(r) + r.URL.RequestURI()
+}
+
+func absoluteBaseURL(r *http.Request) string {
 	scheme := "http"
-	if r.TLS != nil {
+	if proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); proto == "http" || proto == "https" {
+		scheme = proto
+	} else if r.TLS != nil {
 		scheme = "https"
 	}
-	return scheme + "://" + r.Host + r.URL.RequestURI()
+	host := r.Host
+	if forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
+		host = forwardedHost
+	}
+	return scheme + "://" + host
+}
+
+func safeUUID(value string) string {
+	if uuidPattern.MatchString(value) {
+		return value
+	}
+	return ""
 }
 
 func limitStoredValue(value string) string {

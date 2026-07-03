@@ -1,8 +1,7 @@
 RewriteEngine On
 
-# API запросы -> api.php (обработка до всех остальных правил)
-RewriteCond %{REQUEST_URI} ^/api/v1 [NC]
-RewriteRule ^ api.php [QSA,L]
+# Единая защищенная точка входа в админку
+RewriteRule ^admin\.html$ admin.php [L]
 
 # Статические файлы и директории пропускаем
 RewriteCond %{REQUEST_FILENAME} !-f

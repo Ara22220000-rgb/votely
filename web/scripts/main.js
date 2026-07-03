@@ -41,8 +41,28 @@ async function apiJSON(url, options = {}) {
             ...(options.headers || {})
         }
     });
-    initLogoutUI();
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Ошибка запроса');
+    return data;
 }
+
+function setStatus(el, msg, kind) {
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'form-status ' + (kind ? 'is-' + kind : '');
+}
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}
+
+function userDisplayName(user) {
     const raw = user?.username || user?.first_name || 'Профиль';
     return String(raw).replace(/^@/, '').slice(0, 10);
 }
@@ -314,7 +334,7 @@ function renderTelegramLoginFrame(modal, botUsername) {
 function initCreateForm(form) {
     const params = new URLSearchParams(window.location.search);
     const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
-    const pollFields = form.querySelector('[data-poll-fields]');
+    const pollFields = form.querySelectorAll('[data-poll-fields]');
     const quizFields = form.querySelector('[data-quiz-fields]');
     const optionsList = form.querySelector('[data-options-list]');
     const questionsList = form.querySelector('[data-questions-list]');
@@ -323,7 +343,9 @@ function initCreateForm(form) {
     document.querySelectorAll('[data-type-link]').forEach((link) => {
         link.classList.toggle('is-active', link.dataset.typeLink === type);
     });
-    if (pollFields) pollFields.hidden = type !== 'poll';
+    pollFields.forEach((section) => {
+        section.hidden = type !== 'poll';
+    });
     if (quizFields) quizFields.hidden = type !== 'quiz';
     const titleEl = document.querySelector('#creator-title');
     if (titleEl) titleEl.textContent = type === 'quiz' ? 'Создать викторину' : 'Создать опрос';
@@ -417,7 +439,8 @@ function collectPollPayload(form) {
     return {
         title: form.elements.title.value,
         description: form.elements.description.value,
-        options: Array.from(form.querySelectorAll('[name="option"]')).map((input) => input.value)
+        options: Array.from(form.querySelectorAll('[name="option"]')).map((input) => input.value),
+        visibility: form.elements.visibility?.value || 'public'
     };
 }
 
@@ -475,13 +498,31 @@ async function initDetailPage(root) {
     const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
     const id = params.get('id') || '';
     const ownerKey = params.get('owner_key') || '';
+    const linkSlug = params.get('link') || '';
     const container = root.querySelector('[data-detail]');
     try {
-        const data = await apiJSON('/api/v1/' + apiCollection(type) + '/' + encodeURIComponent(id));
+        const detailQuery = type === 'poll' && ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+        const data = await apiJSON('/api/v1/' + apiCollection(type) + '/' + encodeURIComponent(id) + detailQuery);
+        if (type === 'poll' && linkSlug) {
+            window.sessionStorage.setItem('votely_link_' + id, linkSlug);
+        }
         renderDetail(container, data, type, id, ownerKey);
+        if (type === 'poll') recordPollVisit(id, ownerKey, linkSlug);
     } catch (error) {
         renderMessage(container, error.message, true);
     }
+}
+
+function recordPollVisit(id, ownerKey, linkSlug) {
+    const params = new URLSearchParams();
+    if (ownerKey) params.set('owner_key', ownerKey);
+    if (linkSlug) {
+        params.set('link', linkSlug);
+        params.set('utm_source', linkSlug);
+        params.set('utm_medium', 'named');
+    }
+    const query = params.toString() ? '?' + params.toString() : '';
+    apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/visits' + query, { method: 'POST' }).catch(() => {});
 }
 
 function renderDetail(container, data, type, id, ownerKey = '') {
@@ -507,55 +548,7 @@ function renderDetail(container, data, type, id, ownerKey = '') {
 
 async function renderOwnerStats(container, poll, id, ownerKey) {
     const stats = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/stats?owner_key=' + encodeURIComponent(ownerKey));
-    container.replaceChildren();
-    const header = document.createElement('div');
-    header.className = 'stats-header';
-    header.innerHTML = `
-        <div>
-            <p class="creator__eyebrow">Статистика владельца</p>
-            <h1 class="viewer__title">${escapeHtml(poll.title)}</h1>
-            <p class="viewer__description">${escapeHtml(poll.description || 'Опрос без описания')}</p>
-        </div>
-        <div class="metric-box"><span>${stats.total_votes || 0}</span><small>голосов</small></div>
-    `;
-
-    const chartSection = document.createElement('section');
-    chartSection.className = 'stats-chart-section';
-    const totalVotes = stats.total_votes || 0;
-    const pieChart = document.createElement('div');
-    pieChart.className = 'pie-chart-large';
-    if (totalVotes > 0) {
-        pieChart.append(buildPieSvg(stats.options || []));
-    } else {
-        pieChart.innerHTML = '<p class="stats-empty">Голосов пока нет</p>';
-    }
-    const legend = document.createElement('div');
-    legend.className = 'stats-legend';
-    (stats.options || []).forEach((option, index) => {
-        const item = document.createElement('div');
-        item.className = 'legend-item';
-        item.innerHTML = `
-            <div class="legend-item__header">
-                <span class="legend-swatch" style="background:${chartColor(index)}"></span>
-                <span class="legend-text">${escapeHtml(option.text)}</span>
-            </div>
-            <div class="legend-item__stats">
-                <strong>${option.votes}</strong>
-                <span class="legend-percent">${option.percent}%</span>
-            </div>
-            <div class="legend-bar"><div class="legend-bar__fill" style="width:${option.percent}%"></div></div>
-        `;
-        legend.append(item);
-    });
-    chartSection.append(pieChart, legend);
-    const meta = document.createElement('div');
-    meta.className = 'stats-meta';
-    meta.append(
-        metric('Статус', stats.poll?.is_closed ? 'Завершен' : 'Активен'),
-        metric('Анонимность', stats.poll?.is_anonymous ? 'Включена' : 'Открытая'),
-        metric('Страны', stats.poll?.allowed_countries?.length ? stats.poll.allowed_countries.join(', ') : 'Все')
-    );
-    container.append(header, chartSection, meta);
+    await renderStatsBlock(container, poll, stats, id, ownerKey);
 }
 
 async function initStatsPage() {
@@ -566,18 +559,19 @@ async function initStatsPage() {
     const content = document.querySelector('#stats-content');
     if (!id || !content) return;
     try {
-        const poll = await apiJSON('/api/v1/polls/' + encodeURIComponent(id));
+        const pollQuery = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+        const poll = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + pollQuery);
         const stats = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/stats?owner_key=' + encodeURIComponent(ownerKey));
         if (title) title.textContent = poll.title || 'Статистика';
         const holder = document.createElement('div');
-        await renderStatsBlock(holder, poll, stats);
+        await renderStatsBlock(holder, poll, stats, id, ownerKey);
         content.replaceChildren(...holder.childNodes);
     } catch (error) {
         renderMessage(content, error.message, true);
     }
 }
 
-async function renderStatsBlock(container, poll, stats) {
+async function renderStatsBlock(container, poll, stats, pollID = '', ownerKey = '') {
     const header = document.createElement('div');
     header.className = 'stats-header';
     header.innerHTML = `
@@ -622,9 +616,144 @@ async function renderStatsBlock(container, poll, stats) {
     meta.append(
         metric('Статус', stats.poll?.is_closed ? 'Завершен' : 'Активен'),
         metric('Анонимность', stats.poll?.is_anonymous ? 'Включена' : 'Открытая'),
+        metric('Доступ', stats.poll?.visibility === 'private' ? 'Приватный' : 'Публичный'),
         metric('Страны', stats.poll?.allowed_countries?.length ? stats.poll.allowed_countries.join(', ') : 'Все')
     );
-    container.replaceChildren(header, chartSection, meta);
+    const analytics = buildAnalyticsSection(stats.analytics || {});
+    const links = pollID ? await buildShareLinksSection(pollID, ownerKey, stats.analytics?.links || []) : null;
+    container.replaceChildren(header, chartSection, meta, analytics);
+    if (links) container.append(links);
+}
+
+function buildAnalyticsSection(analytics) {
+    const section = document.createElement('section');
+    section.className = 'stats-analytics';
+    section.innerHTML = '<h2 class="stats-analytics__title">Аудитория</h2>';
+    const grid = document.createElement('div');
+    grid.className = 'stats-analytics__grid';
+    grid.append(
+        analyticsCard('Браузеры', analytics.browsers || []),
+        analyticsCard('Устройства', analytics.devices || []),
+        analyticsCard('ОС', analytics.os || []),
+        analyticsCard('Страны', analytics.locations || []),
+        analyticsCard('Источники', analytics.sources || [])
+    );
+    section.append(grid);
+    return section;
+}
+
+function analyticsCard(title, items) {
+    const card = document.createElement('article');
+    card.className = 'analytics-card';
+    card.innerHTML = `<h3 class="analytics-card__title">${escapeHtml(title)}</h3>`;
+    const list = document.createElement('div');
+    list.className = 'analytics-list';
+    if (!items.length) {
+        list.innerHTML = '<p class="stats-empty stats-empty--small">Нет данных</p>';
+    } else {
+        items.forEach((item) => {
+            const row = document.createElement('div');
+            row.className = 'analytics-list__row';
+            row.innerHTML = `<span class="analytics-list__name">${escapeHtml(item.name || 'Unknown')}</span><span class="analytics-list__count">${item.count || 0}</span>`;
+            list.append(row);
+        });
+    }
+    card.append(list);
+    return card;
+}
+
+async function buildShareLinksSection(pollID, ownerKey, initialLinks) {
+    const section = document.createElement('section');
+    section.className = 'share-links-panel';
+    section.innerHTML = `
+        <div class="creator-form__section-head">
+            <h2 class="creator-form__subtitle">Именные ссылки</h2>
+        </div>
+        <div class="create-link-form">
+            <input class="field__control" name="share_link_name" maxlength="80" placeholder="Название ссылки">
+            <button class="primary-button" type="button">Создать</button>
+        </div>
+        <div class="links-list"></div>
+    `;
+    const list = section.querySelector('.links-list');
+    const input = section.querySelector('input');
+    const button = section.querySelector('button');
+    const query = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+
+    async function loadLinks() {
+        const data = await apiJSON('/api/v1/polls/' + encodeURIComponent(pollID) + '/links' + query);
+        renderShareLinks(list, pollID, ownerKey, data.items || []);
+    }
+
+    renderShareLinks(list, pollID, ownerKey, initialLinks);
+    button.addEventListener('click', async () => {
+        const name = input.value.trim();
+        if (!name) {
+            showToast('Введите название ссылки');
+            return;
+        }
+        button.disabled = true;
+        try {
+            await apiJSON('/api/v1/polls/' + encodeURIComponent(pollID) + '/links' + query, {
+                method: 'POST',
+                body: JSON.stringify({ name })
+            });
+            input.value = '';
+            await loadLinks();
+            showToast('Ссылка создана', 'success');
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            button.disabled = false;
+        }
+    });
+    return section;
+}
+
+function renderShareLinks(list, pollID, ownerKey, links) {
+    list.replaceChildren();
+    if (!links.length) {
+        renderMessage(list, 'Именных ссылок пока нет.', false);
+        return;
+    }
+    links.forEach((link) => {
+        const url = link.url || buildShareURL(pollID, link.slug);
+        const row = document.createElement('article');
+        row.className = 'link-item';
+        row.innerHTML = `
+            <div class="link-item__info">
+                <strong class="link-item__name">${escapeHtml(link.name)}</strong>
+                <span class="link-item__utm">${escapeHtml(url)}</span>
+                <span class="link-item__utm">${link.visits || 0} переходов · ${link.votes || 0} голосов</span>
+            </div>
+            <div class="link-item__actions">
+                <button class="link-item__btn link-item__btn--copy" type="button">Копировать</button>
+                <button class="link-item__btn link-item__btn--delete" type="button">Удалить</button>
+            </div>
+        `;
+        row.querySelector('.link-item__btn--copy').addEventListener('click', async () => {
+            await navigator.clipboard?.writeText(url);
+            showToast('Ссылка скопирована', 'success');
+        });
+        row.querySelector('.link-item__btn--delete').addEventListener('click', async () => {
+            if (!window.confirm('Удалить ссылку?')) return;
+            const query = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+            await apiJSON('/api/v1/polls/' + encodeURIComponent(pollID) + '/links/' + encodeURIComponent(link.id) + query, { method: 'DELETE' });
+            row.remove();
+            showToast('Ссылка удалена', 'success');
+        });
+        list.append(row);
+    });
+}
+
+function buildShareURL(pollID, slug) {
+    const url = new URL('/view.php', window.location.origin);
+    url.searchParams.set('type', 'poll');
+    url.searchParams.set('id', pollID);
+    url.searchParams.set('link', slug);
+    url.searchParams.set('utm_source', slug);
+    url.searchParams.set('utm_medium', 'named');
+    return url.toString();
 }
 
 function renderPollView(container, data, id) {
@@ -680,7 +809,9 @@ function renderPollView(container, data, id) {
                 await openLoginFromConfig();
                 return;
             }
-            const result = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/votes', {
+            const linkSlug = new URLSearchParams(window.location.search).get('link') || window.sessionStorage.getItem('votely_link_' + id) || '';
+            const voteQuery = linkSlug ? '?link=' + encodeURIComponent(linkSlug) : '';
+            const result = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/votes' + voteQuery, {
                 method: 'POST',
                 body: JSON.stringify({ option_id: selected.value })
             });

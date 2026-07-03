@@ -1,3 +1,50 @@
+<?php
+$adminTelegramUsers = [6725709823, 6357965364, 8415321014];
+$hashSecret = getenv("HASH_SECRET") ?: "dev-secret-key-for-local-development-only";
+
+function votelyAdminHash($secret, $value) {
+    return hash_hmac("sha256", $value, $secret);
+}
+
+function votelyAdminToken($secret) {
+    $cookie = $_COOKIE["votely_session"] ?? "";
+    if (!preg_match('/^([a-f0-9]{64})\\.([a-f0-9]{64})$/i', $cookie, $matches)) {
+        return null;
+    }
+    $expected = votelyAdminHash($secret, "cookie:" . $matches[1]);
+    if (!hash_equals($expected, $matches[2])) {
+        return null;
+    }
+    return $matches[1];
+}
+
+$token = votelyAdminToken($hashSecret);
+$isAdmin = false;
+if ($token !== null) {
+    try {
+        $dsn = sprintf(
+            "pgsql:host=%s;port=%s;dbname=%s",
+            getenv("PG_HOST") ?: "postgres",
+            getenv("PG_PORT") ?: "5432",
+            getenv("PG_DB") ?: "votely"
+        );
+        $pdo = new PDO($dsn, getenv("PG_USER") ?: "votely", getenv("PG_PASSWORD") ?: "votely", [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        ]);
+        $stmt = $pdo->prepare("SELECT user_id FROM user_sessions WHERE token_hash = :token_hash AND expires_at > now()");
+        $stmt->execute([":token_hash" => votelyAdminHash($hashSecret, "session:" . $token)]);
+        $userId = (int)($stmt->fetchColumn() ?: 0);
+        $isAdmin = in_array($userId, $adminTelegramUsers, true);
+    } catch (Throwable $e) {
+        $isAdmin = false;
+    }
+}
+if (!$isAdmin) {
+    header("Location: /index.php", true, 302);
+    exit;
+}
+?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>

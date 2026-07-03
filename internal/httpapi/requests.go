@@ -15,6 +15,7 @@ const (
 	maxDescriptionLength = 2000
 	maxOptionLength      = 300
 	maxQuestionLength    = 500
+	maxShareLinkName     = 80
 )
 
 type createPollRequest struct {
@@ -25,6 +26,7 @@ type createPollRequest struct {
 	ShuffleOptions   bool     `json:"shuffle_options"`
 	AllowedCountries []string `json:"allowed_countries"`
 	EndsAt           string   `json:"ends_at"`
+	Visibility       string   `json:"visibility"`
 }
 
 type createQuizRequest struct {
@@ -47,6 +49,10 @@ type votePollRequest struct {
 
 type submitQuizAnswerRequest struct {
 	AnswerID string `json:"answer_id"`
+}
+
+type createShareLinkRequest struct {
+	Name string `json:"name"`
 }
 
 func (r createPollRequest) toInput(ownerUserID int64, ownerKeyHash string) (store.PollInput, error) {
@@ -79,6 +85,10 @@ func (r createPollRequest) toInput(ownerUserID int64, ownerKeyHash string) (stor
 	if err != nil {
 		return store.PollInput{}, err
 	}
+	visibility, err := normalizeVisibility(r.Visibility)
+	if err != nil {
+		return store.PollInput{}, err
+	}
 	return store.PollInput{
 		Title:            title,
 		Description:      description,
@@ -89,7 +99,20 @@ func (r createPollRequest) toInput(ownerUserID int64, ownerKeyHash string) (stor
 		ShuffleOptions:   r.ShuffleOptions,
 		AllowedCountries: allowedCountries,
 		EndsAt:           endsAt,
+		Visibility:       visibility,
 	}, nil
+}
+
+func (r createShareLinkRequest) toInput(pollID string) (store.ShareLinkInput, error) {
+	name, err := validateText(r.Name, "Название ссылки", maxShareLinkName, true)
+	if err != nil {
+		return store.ShareLinkInput{}, err
+	}
+	slug := slugify(name)
+	if slug == "" {
+		return store.ShareLinkInput{}, errors.New("Название ссылки должно содержать буквы или цифры.")
+	}
+	return store.ShareLinkInput{PollID: pollID, Name: name, Slug: slug}, nil
 }
 
 func (r createQuizRequest) toInput(ownerUserID int64, ownerKeyHash string) (store.QuizInput, error) {
@@ -224,6 +247,40 @@ func normalizeCountries(values []string) ([]string, error) {
 		return nil, errors.New("Можно указать не больше 30 стран.")
 	}
 	return result, nil
+}
+
+func normalizeVisibility(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "public", nil
+	}
+	if value != "public" && value != "private" {
+		return "", errors.New("Тип доступа должен быть public или private.")
+	}
+	return value, nil
+}
+
+func slugify(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var builder strings.Builder
+	lastDash := false
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			builder.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if r >= 'а' && r <= 'я' {
+			builder.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if (r == '-' || r == '_' || unicode.IsSpace(r)) && !lastDash && builder.Len() > 0 {
+			builder.WriteByte('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(builder.String(), "-")
 }
 
 func parseEndsAt(value string) (*time.Time, error) {

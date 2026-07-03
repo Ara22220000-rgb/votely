@@ -43,6 +43,7 @@ type (
 		UTMCampaign    string
 		UTMTerm        string
 		UTMContent     string
+		ShareLinkID    string
 		IPCountry      string
 		IPRegion       string
 		IPCity         string
@@ -73,12 +74,23 @@ type (
 		Count int    `json:"count"`
 	}
 
+	ShareLinkStats struct {
+		ID        string `json:"id"`
+		Name      string `json:"name"`
+		Slug      string `json:"slug"`
+		URL       string `json:"url,omitempty"`
+		Visits    int    `json:"visits"`
+		Votes     int    `json:"votes"`
+		CreatedAt string `json:"created_at"`
+	}
+
 	PollAnalytics struct {
-		Browsers  []AnalyticsItem `json:"browsers,omitempty"`
-		OS        []AnalyticsItem `json:"os,omitempty"`
-		Devices   []AnalyticsItem `json:"devices,omitempty"`
-		Locations []AnalyticsItem `json:"locations,omitempty"`
-		Sources   []AnalyticsItem `json:"sources,omitempty"`
+		Browsers  []AnalyticsItem  `json:"browsers,omitempty"`
+		OS        []AnalyticsItem  `json:"os,omitempty"`
+		Devices   []AnalyticsItem  `json:"devices,omitempty"`
+		Locations []AnalyticsItem  `json:"locations,omitempty"`
+		Sources   []AnalyticsItem  `json:"sources,omitempty"`
+		Links     []ShareLinkStats `json:"links,omitempty"`
 	}
 
 	PollStats struct {
@@ -117,6 +129,7 @@ type PollInput struct {
 	ShuffleOptions   bool
 	AllowedCountries []string
 	EndsAt           *time.Time
+	Visibility       string
 }
 
 type QuizInput struct {
@@ -164,6 +177,7 @@ type PollDetail struct {
 	EndsAt           string       `json:"ends_at,omitempty"`
 	ClosedAt         string       `json:"closed_at,omitempty"`
 	IsClosed         bool         `json:"is_closed"`
+	Visibility       string       `json:"visibility"`
 }
 
 type QuizDetail struct {
@@ -211,6 +225,12 @@ type AdminSummary struct {
 	Quizzes int `json:"quizzes"`
 	Votes   int `json:"votes"`
 	Users   int `json:"users"`
+}
+
+type ShareLinkInput struct {
+	PollID string
+	Name   string
+	Slug   string
 }
 
 func (s *Store) ExecuteSQL(ctx context.Context, query string) (*SQLResult, error) {
@@ -263,8 +283,8 @@ func (s *Store) CreatePoll(ctx context.Context, input PollInput) (CreatedEntity,
 
 	var id string
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO polls (title, description, owner_user_id, owner_key_hash, is_anonymous, shuffle_options, allowed_countries, ends_at)
-		VALUES ($1, $2, nullif($3::bigint, 0), nullif($4, ''), $5, $6, $7, $8) RETURNING id`,
+		`INSERT INTO polls (title, description, owner_user_id, owner_key_hash, is_anonymous, shuffle_options, allowed_countries, ends_at, visibility)
+		VALUES ($1, $2, nullif($3::bigint, 0), nullif($4, ''), $5, $6, $7, $8, $9) RETURNING id`,
 		strings.TrimSpace(input.Title),
 		strings.TrimSpace(input.Description),
 		input.OwnerUserID,
@@ -273,6 +293,7 @@ func (s *Store) CreatePoll(ctx context.Context, input PollInput) (CreatedEntity,
 		input.ShuffleOptions,
 		input.AllowedCountries,
 		input.EndsAt,
+		input.Visibility,
 	).Scan(&id); err != nil {
 		return CreatedEntity{}, err
 	}
@@ -348,7 +369,7 @@ func (s *Store) CreateQuiz(ctx context.Context, input QuizInput) (CreatedEntity,
 func (s *Store) ListPolls(ctx context.Context, query string) ([]ListItem, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		rows, err := s.db.Query(ctx, `SELECT id::text, title, description, created_at::text FROM polls ORDER BY created_at DESC LIMIT 100`)
+		rows, err := s.db.Query(ctx, `SELECT id::text, title, description, created_at::text FROM polls WHERE visibility = 'public' ORDER BY created_at DESC LIMIT 100`)
 		if err != nil {
 			return nil, err
 		}
@@ -360,7 +381,7 @@ func (s *Store) ListPolls(ctx context.Context, query string) ([]ListItem, error)
 	rows, err := s.db.Query(ctx, `
 		SELECT id::text, title, description, created_at::text
 		FROM polls
-		WHERE title ILIKE $1 ESCAPE '\' OR description ILIKE $1 ESCAPE '\'
+		WHERE visibility = 'public' AND (title ILIKE $1 ESCAPE '\' OR description ILIKE $1 ESCAPE '\')
 		ORDER BY created_at DESC
 		LIMIT 100`, pattern)
 	if err != nil {
@@ -405,11 +426,11 @@ func (s *Store) GetPoll(ctx context.Context, id string, userID int64) (PollDetai
 	var endsAt sql.NullString
 	var closedAt sql.NullString
 	if err := s.db.QueryRow(ctx, `
-		SELECT id::text, title, description, is_anonymous, shuffle_options, allowed_countries, ends_at::text, closed_at::text,
+		SELECT id::text, title, description, is_anonymous, shuffle_options, allowed_countries, ends_at::text, closed_at::text, visibility,
 			(closed_at IS NOT NULL OR (ends_at IS NOT NULL AND ends_at <= now()))
 		FROM polls WHERE id = $1`,
 		id,
-	).Scan(&poll.ID, &poll.Title, &poll.Description, &poll.IsAnonymous, &poll.ShuffleOptions, &poll.AllowedCountries, &endsAt, &closedAt, &poll.IsClosed); err != nil {
+	).Scan(&poll.ID, &poll.Title, &poll.Description, &poll.IsAnonymous, &poll.ShuffleOptions, &poll.AllowedCountries, &endsAt, &closedAt, &poll.Visibility, &poll.IsClosed); err != nil {
 		return PollDetail{}, err
 	}
 	if endsAt.Valid {
@@ -526,15 +547,98 @@ func countryAllowed(country string, allowed []string) bool {
 	return false
 }
 
+func (s *Store) PollAccess(ctx context.Context, pollID, ownerKeyHash string, userID int64, admin bool) (visible bool, owner bool, err error) {
+	err = s.db.QueryRow(ctx, `
+		SELECT
+			visibility = 'public'
+				OR coalesce(owner_key_hash = nullif($2, ''), false)
+				OR ($3::bigint <> 0 AND owner_user_id = $3)
+				OR $4::boolean,
+			coalesce(owner_key_hash = nullif($2, ''), false)
+				OR ($3::bigint <> 0 AND owner_user_id = $3)
+				OR $4::boolean
+		FROM polls
+		WHERE id = $1`,
+		pollID,
+		ownerKeyHash,
+		userID,
+		admin,
+	).Scan(&visible, &owner)
+	return visible, owner, err
+}
+
+func (s *Store) CreatePollShareLink(ctx context.Context, input ShareLinkInput) (ShareLinkStats, error) {
+	var item ShareLinkStats
+	err := s.db.QueryRow(ctx, `
+		INSERT INTO poll_share_links (poll_id, name, slug, utm_source, utm_medium)
+		VALUES ($1, $2, $3, $3, 'named')
+		RETURNING id::text, name, slug, created_at::text`,
+		input.PollID,
+		strings.TrimSpace(input.Name),
+		strings.TrimSpace(input.Slug),
+	).Scan(&item.ID, &item.Name, &item.Slug, &item.CreatedAt)
+	return item, err
+}
+
+func (s *Store) PollShareLinks(ctx context.Context, pollID string) ([]ShareLinkStats, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT psl.id::text, psl.name, psl.slug, psl.created_at::text,
+			count(te.id) FILTER (WHERE te.event_type = 'visit')::int,
+			count(te.id) FILTER (WHERE te.event_type = 'vote')::int
+		FROM poll_share_links psl
+		LEFT JOIN traffic_events te ON te.share_link_id = psl.id
+		WHERE psl.poll_id = $1
+		GROUP BY psl.id, psl.name, psl.slug, psl.created_at
+		ORDER BY psl.created_at DESC`,
+		pollID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ShareLinkStats{}
+	for rows.Next() {
+		var item ShareLinkStats
+		if err := rows.Scan(&item.ID, &item.Name, &item.Slug, &item.CreatedAt, &item.Visits, &item.Votes); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) DeletePollShareLink(ctx context.Context, pollID, linkID string) error {
+	tag, err := s.db.Exec(ctx, `DELETE FROM poll_share_links WHERE poll_id = $1 AND id = $2`, pollID, linkID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) PollShareLinkBySlug(ctx context.Context, pollID, slug string) (ShareLinkStats, error) {
+	var item ShareLinkStats
+	err := s.db.QueryRow(ctx, `
+		SELECT id::text, name, slug, created_at::text
+		FROM poll_share_links
+		WHERE poll_id = $1 AND slug = $2`,
+		pollID,
+		slug,
+	).Scan(&item.ID, &item.Name, &item.Slug, &item.CreatedAt)
+	return item, err
+}
+
 func (s *Store) RecordTrafficEvent(ctx context.Context, event TrafficEvent) error {
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO traffic_events (
 			event_type, path, method, poll_id, option_id, voter_token_hash, ip_hash, device_hash,
-			user_agent, referrer, landing_url, utm_source, utm_medium, utm_campaign, utm_term, utm_content,
+			user_agent, referrer, landing_url, utm_source, utm_medium, utm_campaign, utm_term, utm_content, share_link_id,
 			ip_country, ip_region, ip_city, ip_geo_source, accept_language
 		)
 		VALUES ($1, $2, $3, nullif($4, '')::uuid, nullif($5, '')::uuid, nullif($6, ''), nullif($7, ''), nullif($8, ''),
-			$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+			$9, $10, $11, $12, $13, $14, $15, $16, nullif($17, '')::uuid, $18, $19, $20, $21, $22)`,
 		event.EventType,
 		event.Path,
 		event.Method,
@@ -551,6 +655,7 @@ func (s *Store) RecordTrafficEvent(ctx context.Context, event TrafficEvent) erro
 		event.UTMCampaign,
 		event.UTMTerm,
 		event.UTMContent,
+		event.ShareLinkID,
 		event.IPCountry,
 		event.IPRegion,
 		event.IPCity,
@@ -560,7 +665,7 @@ func (s *Store) RecordTrafficEvent(ctx context.Context, event TrafficEvent) erro
 	return err
 }
 
-func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, userID int64) (PollStats, error) {
+func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, userID int64, admin bool) (PollStats, error) {
 	var allowed bool
 	if err := s.db.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -568,11 +673,13 @@ func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, user
 			WHERE id = $1 AND (
 				owner_key_hash = nullif($2, '')
 				OR ($3::bigint <> 0 AND owner_user_id = $3)
+				OR $4::boolean
 			)
 		)`,
 		pollID,
 		ownerKeyHash,
 		userID,
+		admin,
 	).Scan(&allowed); err != nil {
 		return PollStats{}, err
 	}
@@ -727,6 +834,32 @@ func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, user
 		stats.Analytics.Sources = append(stats.Analytics.Sources, AnalyticsItem{Name: name, Count: count})
 	}
 	rows.Close()
+
+	linkRows, linkErr := s.db.Query(ctx, `
+		SELECT psl.id::text, psl.name, psl.slug, psl.created_at::text,
+			count(te.id) FILTER (WHERE te.event_type = 'visit')::int,
+			count(te.id) FILTER (WHERE te.event_type = 'vote')::int
+		FROM poll_share_links psl
+		LEFT JOIN traffic_events te ON te.share_link_id = psl.id
+		WHERE psl.poll_id = $1
+		GROUP BY psl.id, psl.name, psl.slug, psl.created_at
+		ORDER BY 5 DESC, 6 DESC, psl.created_at DESC`,
+		pollID,
+	)
+	if linkErr != nil {
+		return PollStats{}, linkErr
+	}
+	defer linkRows.Close()
+	for linkRows.Next() {
+		var item ShareLinkStats
+		if err := linkRows.Scan(&item.ID, &item.Name, &item.Slug, &item.CreatedAt, &item.Visits, &item.Votes); err != nil {
+			return PollStats{}, err
+		}
+		stats.Analytics.Links = append(stats.Analytics.Links, item)
+	}
+	if err := linkRows.Err(); err != nil {
+		return PollStats{}, err
+	}
 
 	// Load voters
 	voterRows, voterErr := s.db.Query(ctx, `
