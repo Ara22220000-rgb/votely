@@ -1,4 +1,4 @@
-document.querySelectorAll('[data-dropdown]').forEach((dropdown) => {
+﻿document.querySelectorAll('[data-dropdown]').forEach((dropdown) => {
     const trigger = dropdown.querySelector('.dropdown__trigger');
     const setExpanded = (expanded) => trigger?.setAttribute('aria-expanded', String(expanded));
     dropdown.addEventListener('mouseenter', () => setExpanded(true));
@@ -284,11 +284,19 @@ function openTelegramAuthModal(botUsername) {
     });
     document.body.append(modal);
 
-    window.onTelegramAuth = async (user) => {
+    window.onTelegramAuth = async (data) => {
         try {
             const savedUser = await apiJSON('/api/v1/auth/telegram', {
                 method: 'POST',
-                body: JSON.stringify(user)
+                body: JSON.stringify({
+                    id: data.user?.id || data.id,
+                    first_name: data.user?.first_name || data.first_name,
+                    last_name: data.user?.last_name || data.last_name,
+                    username: data.user?.username || data.username,
+                    photo_url: data.user?.photo_url || data.photo_url,
+                    auth_date: data.auth_date,
+                    hash: data.hash
+                })
             });
             persistLastAuthUser({ ...user, ...savedUser });
             modal.remove();
@@ -372,7 +380,7 @@ function renderTelegramLoginFrame(modal, botUsername) {
             postToTelegram('callback', { _cb: data._cb, value: frameCoords() });
         } else if (data.event === 'auth_user' || data.event === 'auth_result' || authData?.hash) {
             window.removeEventListener('message', handleTelegramMessage);
-            window.onTelegramAuth(authData);
+            window.onTelegramAuth(data);
         } else if (data.event === 'unauthorized') {
             status.textContent = 'Telegram не подтвердил вход. Попробуйте еще раз.';
             status.classList.add('is-error');
