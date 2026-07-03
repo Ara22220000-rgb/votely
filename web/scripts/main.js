@@ -149,14 +149,21 @@ function renderAuthControls() {
             `;
         } else {
             root.innerHTML = `
-                <button class="auth-login-button" type="button" data-auth-action="login">
-                    ${lastAuthAvatar()}
-                    <span>Войти</span>
-                </button>
+                <div class="dropdown dropdown--right" data-dropdown>
+                    <button class="dropdown__trigger auth-login-button" type="button" aria-haspopup="true" aria-expanded="false">
+                        ${lastAuthAvatar()}
+                        <span>Войти</span>
+                    </button>
+                    <div class="dropdown__menu auth-profile__menu" role="menu">
+                        <button class="dropdown__item" type="button" role="menuitem" data-auth-action="login">Через Telegram</button>
+                        <a class="dropdown__item" href="login.php" role="menuitem">Через почту</a>
+                        <a class="dropdown__item" href="register.php" role="menuitem">Регистрация</a>
+                    </div>
+                </div>
             `;
         }
     });
-    document.querySelectorAll('[data-auth-profile]').forEach((dropdown) => {
+    document.querySelectorAll('[data-auth-profile], .nav__right [data-dropdown]').forEach((dropdown) => {
         const trigger = dropdown.querySelector('.dropdown__trigger');
         trigger?.addEventListener('click', () => {
             const expanded = trigger.getAttribute('aria-expanded') === 'true';
@@ -165,6 +172,7 @@ function renderAuthControls() {
         });
     });
     initLogoutUI();
+    initTelegramAuthUI();
 }
 
 function initAuthGuards() {

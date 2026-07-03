@@ -66,8 +66,9 @@
                     <div class="dropdown dropdown--right" data-dropdown>
                         <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">Войти</button>
                         <div class="dropdown__menu" role="menu">
+                            <button class="dropdown__item" type="button" role="menuitem" data-auth-action="login">Через Telegram</button>
+                            <a class="dropdown__item" href="login.php" role="menuitem">Через почту</a>
                             <a class="dropdown__item" href="register.php" role="menuitem">Регистрация</a>
-                            <a class="dropdown__item" href="login.php" role="menuitem">Авторизация</a>
                         </div>
                     </div>
                 </div>

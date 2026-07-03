@@ -75,7 +75,9 @@
                     <div class="dropdown dropdown--right" data-dropdown>
                         <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false" id="auth-trigger">Войти</button>
                         <div class="dropdown__menu" role="menu">
-                            <a class="dropdown__item" href="/api/v1/auth/telegram/config" role="menuitem" id="telegram-login" data-auth-action="login">Войти через Telegram</a>
+                            <button class="dropdown__item" type="button" role="menuitem" id="telegram-login" data-auth-action="login">Через Telegram</button>
+                            <a class="dropdown__item" href="login.php" role="menuitem">Через почту</a>
+                            <a class="dropdown__item" href="register.php" role="menuitem">Регистрация</a>
                         </div>
                     </div>
                 </div>
