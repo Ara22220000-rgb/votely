@@ -447,6 +447,7 @@ function renderTelegramLoginFrame(modal, botUsername) {
 function initCreateForm(form) {
     const params = new URLSearchParams(window.location.search);
     const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
+    document.body.dataset.contentType = type;
     const pollFields = form.querySelectorAll('[data-poll-fields]');
     const quizFields = form.querySelector('[data-quiz-fields]');
     const optionsList = form.querySelector('[data-options-list]');
@@ -576,9 +577,10 @@ function apiCollection(type) {
 async function initBrowsePage(root) {
     const params = new URLSearchParams(window.location.search);
     const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
+    document.body.dataset.contentType = type;
     const list = root.querySelector('[data-list]');
     const title = root.querySelector('[data-browse-title]');
-    if (title) title.textContent = type === 'quiz' ? 'Викторины' : 'Все опросы';
+    if (title) title.textContent = type === 'quiz' ? 'Викторины' : 'Опросы';
     document.querySelectorAll('[data-type-link]').forEach((link) => {
         link.classList.toggle('is-active', link.dataset.typeLink === type);
     });
@@ -613,6 +615,7 @@ function renderCards(list, items, type) {
 async function initDetailPage(root) {
     const params = new URLSearchParams(window.location.search);
     const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
+    document.body.dataset.contentType = type;
     const id = params.get('id') || '';
     const ownerKey = params.get('owner_key') || '';
     const linkSlug = params.get('link') || '';

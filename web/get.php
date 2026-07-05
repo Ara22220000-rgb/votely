@@ -158,6 +158,8 @@
                         <a class="footer__link" href="create.php?type=poll">Создать опрос</a>
                         <a class="footer__link" href="browse.php?type=poll">Опросы</a>
                         <a class="footer__link" href="create.php?type=quiz">Создать викторину</a>
+                        <a class="footer__link" href="browse.php?type=quiz">Викторины</a>
+                        <a class="footer__link" href="wiki.php">Вики</a>
                     </nav>
 
                     <div class="footer__contact">

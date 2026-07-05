@@ -28,7 +28,7 @@
                             <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
                         </div>
                     </div>
-                    <a class="nav-link" href="browse.php?type=poll">Все опросы</a>
+                    <a class="nav-link" href="browse.php?type=poll">Опросы</a>
                 </div>
                 <div class="searchdiv">
                     <form class="search-form" action="browse.php" role="search">
@@ -106,7 +106,7 @@
                             <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
                         </div>
                     </div>
-                    <a class="browse-cta" href="browse.php?type=poll">Все опросы</a>
+                    <a class="browse-cta" href="browse.php?type=poll">Опросы</a>
                 </div>
             </section>
         </main>
@@ -127,6 +127,8 @@
                         <a class="footer__link" href="create.php?type=poll">Создать опрос</a>
                         <a class="footer__link" href="browse.php?type=poll">Опросы</a>
                         <a class="footer__link" href="create.php?type=quiz">Создать викторину</a>
+                        <a class="footer__link" href="browse.php?type=quiz">Викторины</a>
+                        <a class="footer__link" href="wiki.php">Вики</a>
                     </nav>
 
                     <div class="footer__contact">
