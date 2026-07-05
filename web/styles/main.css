@@ -2236,15 +2236,6 @@ a {
     box-shadow: 0 0 0 2px var(--accent-rgba), 0 4px 12px var(--accent-rgba-soft);
 }
 
-.vote-option.is-user-selected::after {
-    content: '✓';
-    position: absolute;
-    top: 8px;
-    right: 12px;
-    color: var(--accent);
-    font-size: 16px;
-    font-weight: 900;
-}
 
 .vote-option.is-correct {
     border-color: var(--accent);

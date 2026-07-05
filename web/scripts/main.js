@@ -569,6 +569,10 @@ function collectQuizPayload(form) {
     };
 }
 
+function apiCollection(type) {
+    return type === 'quiz' ? 'quizzes' : 'polls';
+}
+
 async function initBrowsePage(root) {
     const params = new URLSearchParams(window.location.search);
     const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
@@ -1185,3 +1189,37 @@ function renderAdminItems(list, items, type, csrf, reload) {
         list.append(row);
     });
 }
+
+async function checkAuthStatus() {
+    try {
+        const data = await apiJSON('/api/v1/auth/me');
+        if (data.authenticated && data.user) {
+            authState = { authenticated: true, user: data.user, isAdmin: !!data.is_admin };
+        } else {
+            authState = { authenticated: false, user: null, isAdmin: false };
+        }
+    } catch {
+        authState = { authenticated: false, user: null, isAdmin: false };
+    }
+    authReady = Promise.resolve(authState);
+    renderAuthControls();
+    return authState;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    initToasts();
+    checkAuthStatus();
+    initAuthGuards();
+
+    const createForm = document.querySelector('[data-create-form]');
+    if (createForm) initCreateForm(createForm);
+
+    const browseRoot = document.querySelector('[data-browse-root]');
+    if (browseRoot) initBrowsePage(browseRoot);
+
+    const detailRoot = document.querySelector('[data-detail-root]');
+    if (detailRoot) initDetailPage(detailRoot);
+
+    const adminRoot = document.querySelector('[data-admin-root]');
+    if (adminRoot) initAdminPanel(adminRoot);
+});
