@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"mime"
 	"net"
@@ -556,56 +555,62 @@ func (s *apiServer) telegramAuth(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "telegram_not_configured", "Telegram авторизация не настроена.")
 		return
 	}
-	var rawPayload map[string]any
-	if err := decodeJSON(w, r, &rawPayload); err != nil {
+	var req telegramAuthPayload
+	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
 		return
 	}
-	payload := normalizeTelegramPayload(rawPayload)
-	if !verifyTelegramLogin(payload, s.telegramBotToken) {
+
+	// Build map[string]string for HMAC verification.
+	// id and auth_date are int64 → string via strconv.
+	// Optional fields (last_name, username, photo_url) are only included
+	// when present in the JSON — Telegram omits them from the hash if the
+	// user has no last name / username / photo.
+	payload := map[string]string{
+		"id":         strconv.FormatInt(req.ID, 10),
+		"auth_date":  strconv.FormatInt(req.AuthDate, 10),
+		"first_name": req.FirstName,
+		"hash":       req.Hash,
+	}
+	if req.LastName != nil {
+		payload["last_name"] = *req.LastName
+	}
+	if req.Username != nil {
+		payload["username"] = *req.Username
+	}
+	if req.PhotoURL != nil {
+		payload["photo_url"] = *req.PhotoURL
+	}
+
+	if !s.verifyTelegramLogin(payload, s.telegramBotToken) {
+		s.logger.Error("telegram auth: signature verification failed", "payload", fmt.Sprintf("%v", payload))
 		writeError(w, http.StatusUnauthorized, "invalid_telegram_auth", "Telegram подпись не прошла проверку.")
 		return
 	}
-	userID, err := strconv.ParseInt(payload["id"], 10, 64)
-	if err != nil || userID <= 0 {
+	if req.ID <= 0 {
 		writeError(w, http.StatusBadRequest, "invalid_telegram_user", "Некорректный Telegram ID.")
 		return
 	}
-	authUnix, _ := strconv.ParseInt(payload["auth_date"], 10, 64)
 	user := store.TelegramUser{
-		ID:        userID,
-		FirstName: payload["first_name"],
-		LastName:  payload["last_name"],
-		Username:  payload["username"],
-		PhotoURL:  payload["photo_url"],
-		AuthDate:  time.Unix(authUnix, 0),
+		ID:        req.ID,
+		FirstName: req.FirstName,
+		LastName:  derefStr(req.LastName),
+		Username:  derefStr(req.Username),
+		PhotoURL:  derefStr(req.PhotoURL),
+		AuthDate:  time.Unix(req.AuthDate, 0),
 	}
 	if err := s.store.UpsertTelegramUser(r.Context(), user); err != nil {
 		s.logger.Error("telegram user upsert failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось сохранить пользователя.")
 		return
 	}
-	token, err := randomHex(32)
+	_, err := s.createAuthSession(w, r, user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать сессию.")
 		return
 	}
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	if err := s.store.CreateSession(r.Context(), userID, keyedHash(s.hashSecret, "session:"+token), expiresAt); err != nil {
-		s.logger.Error("session create failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать сессию.")
-		return
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    signVoterToken(s.hashSecret, token),
-		Path:     "/",
-		MaxAge:   int(time.Until(expiresAt).Seconds()),
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":         userID,
+		"id":         user.ID,
 		"username":   user.Username,
 		"first_name": user.FirstName,
 		"photo_url":  user.PhotoURL,
@@ -665,17 +670,15 @@ func (s *apiServer) emailLogin(w http.ResponseWriter, r *http.Request) {
 	s.createAuthSession(w, r, emailUser.User)
 }
 
-func (s *apiServer) createAuthSession(w http.ResponseWriter, r *http.Request, user store.TelegramUser) {
+func (s *apiServer) createAuthSession(w http.ResponseWriter, r *http.Request, user store.TelegramUser) (store.TelegramUser, error) {
 	token, err := randomHex(32)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать сессию.")
-		return
+		return user, errors.New("Не удалось создать сессию.")
 	}
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
 	if err := s.store.CreateSession(r.Context(), user.ID, keyedHash(s.hashSecret, "session:"+token), expiresAt); err != nil {
 		s.logger.Error("session create failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать сессию.")
-		return
+		return user, errors.New("Не удалось создать сессию.")
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
@@ -685,14 +688,7 @@ func (s *apiServer) createAuthSession(w http.ResponseWriter, r *http.Request, us
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
-	writeJSON(w, http.StatusOK, map[string]any{
-		"user": map[string]any{
-			"id":         user.ID,
-			"username":   user.Username,
-			"first_name": user.FirstName,
-			"photo_url":  user.PhotoURL,
-		},
-	})
+	return user, nil
 }
 
 func (s *apiServer) authLogout(w http.ResponseWriter, r *http.Request) {
@@ -705,25 +701,6 @@ func (s *apiServer) authLogout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
-}
-
-func normalizeTelegramPayload(raw map[string]any) map[string]string {
-	payload := make(map[string]string, len(raw))
-	for key, value := range raw {
-		switch typed := value.(type) {
-		case string:
-			payload[key] = typed
-		case float64:
-			if typed == float64(int64(typed)) {
-				payload[key] = strconv.FormatInt(int64(typed), 10)
-			} else {
-				payload[key] = strconv.FormatFloat(typed, 'f', -1, 64)
-			}
-		case bool:
-			payload[key] = strconv.FormatBool(typed)
-		}
-	}
-	return payload
 }
 
 func (s *apiServer) getQuiz(w http.ResponseWriter, r *http.Request) {
@@ -902,12 +879,10 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, value any) error {
 		return errors.New("Ожидается Content-Type application/json.")
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	decoder.DisallowUnknownFields()
+	// Don't use DisallowUnknownFields — Telegram embed widget may send extra fields
+	// that we should ignore rather than reject with 400.
 	if err := decoder.Decode(value); err != nil {
 		return errors.New("Некорректный JSON.")
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errors.New("JSON должен содержать только один объект.")
 	}
 	return nil
 }
@@ -1111,31 +1086,44 @@ func keyedHash(secret, value string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func verifyTelegramLogin(payload map[string]string, botToken string) bool {
+func (s *apiServer) verifyTelegramLogin(payload map[string]string, botToken string) bool {
 	hashValue := payload["hash"]
 	if hashValue == "" {
+		s.logger.Debug("telegram auth: missing hash")
 		return false
 	}
+
 	authUnix, err := strconv.ParseInt(payload["auth_date"], 10, 64)
 	if err != nil || time.Since(time.Unix(authUnix, 0)) > 24*time.Hour {
+		s.logger.Debug("telegram auth: invalid or expired auth_date", "auth_date", payload["auth_date"])
 		return false
 	}
-	keys := make([]string, 0, len(payload))
-	for key, value := range payload {
-		if key == "hash" || value == "" {
-			continue
+
+	// Build the signed string from all fields except 'hash', sorted by key name.
+	keys := make([]string, 0, len(payload)-1)
+	for k := range payload {
+		if k != "hash" {
+			keys = append(keys, k)
 		}
-		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		parts = append(parts, key+"="+payload[key])
+	for _, k := range keys {
+		parts = append(parts, k+"="+payload[k])
 	}
-	secret := sha256.Sum256([]byte(botToken))
-	mac := hmac.New(sha256.New, secret[:])
-	_, _ = mac.Write([]byte(strings.Join(parts, "\n")))
+
+	signedString := strings.Join(parts, "\n")
+	// Telegram uses SHA256(bot_token) as the HMAC key, not the raw token.
+	// See: https://core.telegram.org/widgets/login#checking-authorization
+	botToken = strings.TrimSpace(botToken)
+	tokenHash := sha256.Sum256([]byte(botToken))
+	
+	mac := hmac.New(sha256.New, tokenHash[:])
+	_, _ = mac.Write([]byte(signedString))
 	expected := hex.EncodeToString(mac.Sum(nil))
+
+	s.logger.Debug("telegram auth check", "expected_hash", expected, "received_hash", hashValue, "token_len", len(botToken))
+
 	return hmac.Equal([]byte(hashValue), []byte(expected))
 }
 
@@ -1154,7 +1142,7 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 
 func withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src https://oauth.telegram.org https://telegram.org; connect-src 'self' https://oauth.telegram.org https://telegram.org; img-src 'self' https://t.me https://telegram.org data:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src https://oauth.telegram.org https://oauth.telegram.com https://telegram.org; connect-src 'self' https://oauth.telegram.org https://oauth.telegram.com https://telegram.org; img-src 'self' https://t.me https://telegram.org data:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")

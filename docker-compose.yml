@@ -43,6 +43,7 @@ services:
       - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-}
       - APP_ADDR=:8081
       - MIGRATIONS_DIR=/migrations
+      - LOG_LEVEL=debug
     expose:
       - "8081"
 
