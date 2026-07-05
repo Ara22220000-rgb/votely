@@ -25,6 +25,7 @@
                         </div>
                     </div>
                     <a class="nav-link is-active" href="browse.php?type=poll">Опросы</a>
+                    <a class="nav-link" href="browse.php?type=quiz">Викторины</a>
                 </div>
                 <div class="searchdiv">
                     <form class="search-form" action="browse.php" role="search">
@@ -117,7 +118,7 @@
                 </div>
 
                 <p class="footer__bottom">© 2026 Votely</p>
-                <p class="footer__bottom_right">Версия: 1.8.1</p>
+                <p class="footer__bottom_right">Версия: 26.3</p>
             </div>
         </footer>
     </div>

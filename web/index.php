@@ -7,7 +7,7 @@
     <link rel="icon" href="votely.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles/main.css?v=2">
 </head>
-<body>
+<body data-content-type="home">
     <div class="page">
         <header class="site-header">
             <nav class="nav" aria-label="Основная навигация">
@@ -29,6 +29,7 @@
                         </div>
                     </div>
                     <a class="nav-link" href="browse.php?type=poll">Опросы</a>
+                    <a class="nav-link" href="browse.php?type=quiz">Викторины</a>
                 </div>
                 <div class="searchdiv">
                     <form class="search-form" action="browse.php" role="search">
@@ -106,7 +107,6 @@
                             <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
                         </div>
                     </div>
-                    <a class="browse-cta" href="browse.php?type=poll">Опросы</a>
                 </div>
             </section>
         </main>
@@ -140,6 +140,7 @@
                 </div>
 
                 <p class="footer__bottom">© 2026 Votely</p>
+                <p class="footer__bottom_right">Версия: 26.3</p>
             </div>
         </footer>
     </div>

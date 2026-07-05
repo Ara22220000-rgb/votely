@@ -27,6 +27,7 @@
                         </div>
                     </div>
                     <a class="nav-link" href="browse.php?type=poll">Опросы</a>
+                    <a class="nav-link" href="browse.php?type=quiz">Викторины</a>
                 </div>
                 <div class="searchdiv">
                     <form class="search-form" action="browse.php" role="search" method="GET">
