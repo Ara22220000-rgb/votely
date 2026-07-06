@@ -638,6 +638,12 @@ func (s *apiServer) emailRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.createAuthSession(w, r, user)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"id":         user.ID,
+		"username":   user.Username,
+		"first_name": user.FirstName,
+		"photo_url":  user.PhotoURL,
+	})
 }
 
 func (s *apiServer) emailLogin(w http.ResponseWriter, r *http.Request) {
@@ -666,6 +672,12 @@ func (s *apiServer) emailLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.createAuthSession(w, r, emailUser.User)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":         emailUser.User.ID,
+		"username":   emailUser.User.Username,
+		"first_name": emailUser.User.FirstName,
+		"photo_url":  emailUser.User.PhotoURL,
+	})
 }
 
 func (s *apiServer) createAuthSession(w http.ResponseWriter, r *http.Request, user store.TelegramUser) (store.TelegramUser, error) {
