@@ -84,6 +84,7 @@ func NewServer(cfg ServerConfig) *http.Server {
 	mux.HandleFunc("GET /api/v1/admin/items", api.adminOnly(api.adminItems, false))
 	mux.HandleFunc("DELETE /api/v1/admin/polls/{id}", api.adminOnly(api.deletePoll, true))
 	mux.HandleFunc("DELETE /api/v1/admin/quizzes/{id}", api.adminOnly(api.deleteQuiz, true))
+	mux.HandleFunc("POST /api/v1/admin/sql", api.adminOnly(api.adminSQL, true))
 	mux.HandleFunc("GET /admin.php", api.adminPage(cfg.StaticDir))
 	mux.HandleFunc("GET /admin.html", api.adminPage(cfg.StaticDir))
 	mux.Handle("GET /", staticHandler(cfg.StaticDir))
@@ -782,6 +783,43 @@ func (s *apiServer) adminItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *apiServer) adminSQL(w http.ResponseWriter, r *http.Request) {
+	var req sqlRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	query := strings.TrimSpace(req.Query)
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", "Введите SQL-запрос.")
+		return
+	}
+	if len(query) > 4000 {
+		writeError(w, http.StatusBadRequest, "validation_error", "Запрос слишком длинный.")
+		return
+	}
+	upper := strings.ToUpper(strings.TrimSpace(query))
+	if strings.HasPrefix(upper, "SELECT") || strings.HasPrefix(upper, "WITH") || strings.HasPrefix(upper, "EXPLAIN") {
+		result, err := s.store.ExecuteSQL(r.Context(), query)
+		if err != nil {
+			s.logger.Error("sql query failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "sql_error", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+	res, err := s.store.ExecuteSQL(r.Context(), query)
+	if err != nil {
+		s.logger.Error("sql exec failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "sql_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"affected_rows": res.AffectedRows,
+	})
 }
 
 func isAdminUser(userID int64) bool {

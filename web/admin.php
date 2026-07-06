@@ -98,6 +98,19 @@ if (!$isAdmin) {
                         <button class="creator__switch-link" type="button" data-admin-type="quizzes">Викторины</button>
                     </div>
                     <div class="stack admin-list-gap" data-admin-list></div>
+
+                    <div class="creator-form__section admin-section-gap">
+                        <h2 class="creator-form__subtitle">SQL-консоль</h2>
+                        <p class="creator-form__hint">Выполнение SQL-запросов напрямую к базе данных. SELECT-запросы показывают таблицу, остальные — количество затронутых строк.</p>
+                    </div>
+                    <div class="sql-console" data-sql-console>
+                        <textarea class="sql-input" data-sql-input placeholder="SELECT * FROM polls LIMIT 10;" rows="6"></textarea>
+                        <div class="sql-actions">
+                            <button class="btn btn--primary" data-sql-run>Выполнить</button>
+                            <button class="btn btn--secondary" data-sql-clear>Очистить</button>
+                        </div>
+                        <div class="sql-result" data-sql-result hidden></div>
+                    </div>
                 </div>
             </section>
         </main>
@@ -135,5 +148,94 @@ if (!$isAdmin) {
         </footer>
     </div>
     <script src="scripts/main.js"></script>
+    <script>
+    (function() {
+        const csrf = document.querySelector('meta[name="csrf"]')?.content || '';
+        const sqlInput = document.querySelector('[data-sql-input]');
+        const sqlRun = document.querySelector('[data-sql-run]');
+        const sqlClear = document.querySelector('[data-sql-clear]');
+        const sqlResult = document.querySelector('[data-sql-result]');
+
+        if (!sqlInput || !sqlRun) return;
+
+        function showResult(html) {
+            sqlResult.innerHTML = html;
+            sqlResult.hidden = false;
+        }
+
+        function showError(msg) {
+            showResult('<div class="sql-error">❌ ' + msg + '</div>');
+        }
+
+        sqlRun.addEventListener('click', async function() {
+            const query = sqlInput.value.trim();
+            if (!query) {
+                showError('Введите SQL-запрос.');
+                return;
+            }
+
+            sqlRun.disabled = true;
+            sqlRun.textContent = '⏳ Выполняется...';
+            showResult('<div class="sql-loading">⏳ Выполняется запрос...</div>');
+
+            try {
+                const res = await fetch('/api/v1/admin/sql', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrf
+                    },
+                    body: JSON.stringify({ query })
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    showError(data.message || 'Ошибка выполнения запроса.');
+                    return;
+                }
+
+                if (data.rows !== undefined) {
+                    if (data.rows.length === 0) {
+                        showResult('<div class="sql-success">✅ Запрос выполнен. Строк: 0</div>');
+                        return;
+                    }
+
+                    let html = '<div class="sql-success">✅ Запрос выполнен. Строк: ' + data.rows.length + '</div>';
+                    html += '<div class="sql-table-wrapper"><table class="sql-table"><thead><tr>';
+                    data.columns.forEach(col => { html += '<th>' + col + '</th>'; });
+                    html += '</tr></thead><tbody>';
+                    data.rows.forEach(row => {
+                        html += '<tr>';
+                        row.forEach(val => { html += '<td>' + (val !== null ? String(val) : '<em>null</em>') + '</td>'; });
+                        html += '</tr>';
+                    });
+                    html += '</tbody></table></div>';
+                    showResult(html);
+                } else {
+                    showResult('<div class="sql-success">✅ Запрос выполнен. Затронуто строк: ' + (data.affected_rows || 0) + '</div>');
+                }
+            } catch (err) {
+                showError('Ошибка сети: ' + err.message);
+            } finally {
+                sqlRun.disabled = false;
+                sqlRun.textContent = 'Выполнить';
+            }
+        });
+
+        sqlClear.addEventListener('click', function() {
+            sqlInput.value = '';
+            sqlResult.hidden = true;
+            sqlResult.innerHTML = '';
+            sqlInput.focus();
+        });
+
+        sqlInput.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                sqlRun.click();
+            }
+        });
+    })();
+    </script>
 </body>
 </html>
