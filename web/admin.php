@@ -67,7 +67,8 @@ if (!$isAdmin) {
                     <span class="nav-link admin-green-text">Панель управления</span>
                 </div>
                 <div class="nav__right">
-                    <button class="nav-link" type="button" data-admin-logout hidden>Выйти</button>
+                    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Переключить тему">🌙</button>
+                    <button class="nav-link" id="admin-logout">Выйти</button>
                 </div>
             </nav>
         </header>
