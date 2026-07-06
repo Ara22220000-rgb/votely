@@ -13,6 +13,37 @@
 let authState = { authenticated: false, user: null };
 let authReady = Promise.resolve(authState);
 
+// Theme Toggle
+function initTheme() {
+    const toggle = document.getElementById('theme-toggle');
+    const stored = localStorage.getItem('votely_theme');
+    const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+    const theme = stored || (prefersLight ? 'light' : 'dark');
+    
+    document.documentElement.setAttribute('data-theme', theme);
+    updateToggleIcon(theme);
+    
+    if (toggle) {
+        toggle.addEventListener('click', () => {
+            const current = document.documentElement.getAttribute('data-theme');
+            const next = current === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('votely_theme', next);
+            updateToggleIcon(next);
+        });
+    }
+}
+
+function updateToggleIcon(theme) {
+    const toggle = document.getElementById('theme-toggle');
+    if (toggle) {
+        toggle.textContent = theme === 'light' ? '☀️' : '🌙';
+        toggle.setAttribute('aria-label', theme === 'light' ? 'Переключить на тёмную тему' : 'Переключить на светлую тему');
+    }
+}
+
+initTheme();
+
 function initToasts() {
     if (document.querySelector('[data-toast-root]')) return;
     const root = document.createElement('div');
