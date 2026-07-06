@@ -78,6 +78,7 @@
                 </div>
 
                 <div class="nav__right">
+                    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Переключить тему">🌙</button>
                     <div class="dropdown dropdown--right" data-dropdown>
                         <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
                             Войти
