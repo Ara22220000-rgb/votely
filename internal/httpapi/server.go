@@ -380,7 +380,7 @@ func (s *apiServer) voteIdentity(w http.ResponseWriter, r *http.Request) (store.
 	if err != nil {
 		return store.VoteIdentity{}, err
 	}
-	ip, err := clientIP(r.RemoteAddr)
+	ip, err := clientIP(r, r.RemoteAddr)
 	if err != nil {
 		return store.VoteIdentity{}, err
 	}
@@ -429,7 +429,7 @@ func (s *apiServer) recordTrafficEvent(r *http.Request, eventType, pollID, optio
 }
 
 func (s *apiServer) trafficEvent(r *http.Request, eventType, pollID, optionID string) (store.TrafficEvent, error) {
-	ip, err := clientIP(r.RemoteAddr)
+	ip, err := clientIP(r, r.RemoteAddr)
 	if err != nil {
 		return store.TrafficEvent{}, err
 	}
@@ -952,7 +952,37 @@ func validVoterToken(value string) bool {
 	return err == nil
 }
 
-func clientIP(remoteAddr string) (string, error) {
+func clientIP(r *http.Request, remoteAddr string) (string, error) {
+	// Проверяем заголовки reverse proxy (X-Forwarded-For, X-Real-IP)
+	// X-Forwarded-For может содержать несколько IP: client, proxy1, proxy2, ...
+	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
+		// Берём первый IP (клиентский)
+		if idx := strings.Index(xff, ","); idx > 0 {
+			xff = xff[:idx]
+		}
+		ip := net.ParseIP(strings.TrimSpace(xff))
+		if ip != nil && !ip.IsPrivate() && !ip.IsLoopback() {
+			return ip.String(), nil
+		}
+	}
+
+	// X-Real-IP (используется nginx)
+	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
+		ip := net.ParseIP(strings.TrimSpace(xri))
+		if ip != nil && !ip.IsPrivate() && !ip.IsLoopback() {
+			return ip.String(), nil
+		}
+	}
+
+	// CF-Connecting-IP (Cloudflare)
+	if cfip := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cfip != "" {
+		ip := net.ParseIP(strings.TrimSpace(cfip))
+		if ip != nil {
+			return ip.String(), nil
+		}
+	}
+
+	// Fallback к remoteAddr
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
 		host = remoteAddr

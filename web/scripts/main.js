@@ -65,15 +65,26 @@ function showToast(message, kind = 'error') {
 
 async function apiJSON(url, options = {}) {
     const response = await fetch(url, {
-        credentials: 'same-origin',
+        credentials: 'include',
+        mode: 'cors',
         ...options,
         headers: {
             ...(options.body ? { 'Content-Type': 'application/json' } : {}),
             ...(options.headers || {})
         }
     });
+    
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || 'Ошибка запроса (' + response.status + ')');
+    }
+    
+    // Для ответов 204 No Content
+    if (response.status === 204) {
+        return {};
+    }
+    
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || 'Ошибка запроса');
     return data;
 }
 
@@ -1037,6 +1048,7 @@ function renderPollView(container, data, id) {
         }
         if (selectedOptionID) return;
         btn.disabled = true;
+        btn.textContent = 'Отправка...';
         try {
             const linkSlug = new URLSearchParams(window.location.search).get('link') || window.sessionStorage.getItem('votely_link_' + id) || '';
             const voteQuery = linkSlug ? '?link=' + encodeURIComponent(linkSlug) : '';
@@ -1048,9 +1060,13 @@ function renderPollView(container, data, id) {
             animateVoteBars(container);
             showToast('Голос учтен', 'success');
         } catch (error) {
-            showToast(error.message, 'error');
+            console.error('Vote error:', error);
+            showToast(error.message || 'Не удалось отправить голос. Проверьте соединение.', 'error');
+            btn.textContent = selectedOptionID ? 'Голос учтен' : 'Голосовать';
         } finally {
-            btn.disabled = false;
+            if (!selectedOptionID) {
+                btn.disabled = false;
+            }
         }
     });
     container.replaceChildren(form);
@@ -1342,6 +1358,118 @@ async function checkAuthStatus() {
     authReady = Promise.resolve(authState);
     renderAuthControls();
     return authState;
+}
+
+// Инициализация страницы голосования (get.php)
+async function initGetPage() {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('id') || '';
+    const ownerKey = params.get('owner_key') || '';
+    const linkSlug = params.get('link') || '';
+    
+    const titleEl = document.getElementById('vote-title');
+    const contentEl = document.getElementById('vote-content');
+    const shareSection = document.getElementById('share-section');
+    const shareUrlInput = document.getElementById('share-url');
+    const copyLinkBtn = document.getElementById('copy-link-btn');
+    const linkNameInput = document.getElementById('link-name');
+    const createLinkBtn = document.getElementById('create-link-btn');
+    const linksList = document.getElementById('links-list');
+    const statsLinkBtn = document.getElementById('stats-link-btn');
+    
+    if (!id || !contentEl) {
+        if (contentEl) {
+            contentEl.innerHTML = '<div class="viewer-empty"><div class="viewer-empty-icon">❌</div><p>Неверный ID опроса</p></div>';
+        }
+        return;
+    }
+    
+    try {
+        const detailQuery = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+        const data = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + detailQuery);
+        
+        if (titleEl) titleEl.textContent = data.title || 'Голосование';
+        
+        if (linkSlug) {
+            window.sessionStorage.setItem('votely_link_' + id, linkSlug);
+        }
+        
+        // Рендерим форму голосования
+        renderPollView(contentEl, data, id);
+        
+        // Записываем посещение
+        recordPollVisit(id, ownerKey, linkSlug);
+        
+        // Показываем секцию sharing только владельцу
+        if (data.is_owner && shareSection) {
+            shareSection.hidden = false;
+            
+            // Устанавливаем URL для копирования
+            const currentUrl = window.location.href;
+            if (shareUrlInput) shareUrlInput.value = currentUrl;
+            
+            // Кнопка копирования ссылки
+            if (copyLinkBtn) {
+                copyLinkBtn.addEventListener('click', async () => {
+                    try {
+                        await navigator.clipboard.writeText(currentUrl);
+                        showToast('Ссылка скопирована', 'success');
+                    } catch {
+                        showToast('Не удалось скопировать', 'error');
+                    }
+                });
+            }
+            
+            // Ссылка на статистику
+            if (statsLinkBtn) {
+                const statsUrl = 'stats.php?id=' + encodeURIComponent(id) + (ownerKey ? '&owner_key=' + encodeURIComponent(ownerKey) : '');
+                statsLinkBtn.href = statsUrl;
+            }
+            
+            // Создание именованных ссылок
+            if (createLinkBtn && linkNameInput && linksList) {
+                createLinkBtn.addEventListener('click', async () => {
+                    const name = linkNameInput.value.trim();
+                    if (!name) {
+                        showToast('Введите название ссылки');
+                        return;
+                    }
+                    createLinkBtn.disabled = true;
+                    try {
+                        const query = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+                        await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/links' + query, {
+                            method: 'POST',
+                            body: JSON.stringify({ name })
+                        });
+                        linkNameInput.value = '';
+                        await loadLinks();
+                        showToast('Ссылка создана', 'success');
+                    } catch (error) {
+                        showToast(error.message, 'error');
+                    } finally {
+                        createLinkBtn.disabled = false;
+                    }
+                });
+                
+                // Загрузка списка ссылок
+                async function loadLinks() {
+                    try {
+                        const query = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+                        const linksData = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/links' + query);
+                        renderShareLinks(linksList, id, ownerKey, linksData.items || []);
+                    } catch {
+                        linksList.innerHTML = '<p class="stats-empty">Не удалось загрузить ссылки</p>';
+                    }
+                }
+                
+                loadLinks();
+            }
+        }
+    } catch (error) {
+        if (contentEl) {
+            contentEl.innerHTML = '<div class="viewer-empty"><div class="viewer-empty-icon">❌</div><p>' + escapeHtml(error.message) + '</p></div>';
+        }
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

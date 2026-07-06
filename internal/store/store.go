@@ -510,38 +510,70 @@ func (s *Store) VotePoll(ctx context.Context, pollID, optionID string, identity 
 	}
 
 	var voteID string
-	insertQuery := `
-		INSERT INTO poll_votes (poll_id, option_id, telegram_user_id, voter_token_hash, ip_hash, device_hash)
-		VALUES ($1, $2, nullif($3::bigint, 0), nullif($4, ''), nullif($5, ''), nullif($6, ''))
-	`
 	// Приоритет проверки: telegram_user_id > voter_token_hash > ip_hash > device_hash
-	// Используем ON CONFLICT с правильными уникальными индексами
+	// Вставляем только один идентификатор за раз, чтобы избежать конфликтов по нескольким уникальным индексам
 	if identity.TelegramUserID != 0 {
-		insertQuery += `ON CONFLICT ON CONSTRAINT poll_votes_poll_telegram_user_unique DO NOTHING`
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO poll_votes (poll_id, option_id, telegram_user_id)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (poll_id, telegram_user_id) WHERE telegram_user_id IS NOT NULL DO NOTHING
+			RETURNING id::text`,
+			pollID, optionID, identity.TelegramUserID,
+		).Scan(&voteID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return VoteResult{}, ErrDuplicateVote
+			}
+			return VoteResult{}, err
+		}
 	} else if identity.VoterTokenHash != "" {
-		insertQuery += `ON CONFLICT ON CONSTRAINT poll_votes_poll_voter_token_hash_unique DO NOTHING`
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO poll_votes (poll_id, option_id, voter_token_hash)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (poll_id, voter_token_hash) WHERE voter_token_hash IS NOT NULL DO NOTHING
+			RETURNING id::text`,
+			pollID, optionID, identity.VoterTokenHash,
+		).Scan(&voteID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return VoteResult{}, ErrDuplicateVote
+			}
+			return VoteResult{}, err
+		}
 	} else if identity.IPHash != "" {
-		insertQuery += `ON CONFLICT ON CONSTRAINT poll_votes_poll_ip_hash_unique DO NOTHING`
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO poll_votes (poll_id, option_id, ip_hash)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (poll_id, ip_hash) WHERE ip_hash IS NOT NULL DO NOTHING
+			RETURNING id::text`,
+			pollID, optionID, identity.IPHash,
+		).Scan(&voteID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return VoteResult{}, ErrDuplicateVote
+			}
+			return VoteResult{}, err
+		}
 	} else if identity.DeviceHash != "" {
-		insertQuery += `ON CONFLICT ON CONSTRAINT poll_votes_poll_device_hash_unique DO NOTHING`
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO poll_votes (poll_id, option_id, device_hash)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (poll_id, device_hash) WHERE device_hash IS NOT NULL DO NOTHING
+			RETURNING id::text`,
+			pollID, optionID, identity.DeviceHash,
+		).Scan(&voteID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return VoteResult{}, ErrDuplicateVote
+			}
+			return VoteResult{}, err
+		}
 	} else {
 		// Если нет идентификаторов, разрешаем голосовать без защиты от повтора
-		// Это может случиться при голосовании без cookies и без Telegram
-	}
-	insertQuery += ` RETURNING id::text`
-
-	if err := tx.QueryRow(ctx, insertQuery,
-		pollID,
-		optionID,
-		identity.TelegramUserID,
-		identity.VoterTokenHash,
-		identity.IPHash,
-		identity.DeviceHash,
-	).Scan(&voteID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return VoteResult{}, ErrDuplicateVote
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO poll_votes (poll_id, option_id)
+			VALUES ($1, $2)
+			RETURNING id::text`,
+			pollID, optionID,
+		).Scan(&voteID); err != nil {
+			return VoteResult{}, err
 		}
-		return VoteResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return VoteResult{}, err
@@ -1003,7 +1035,7 @@ func (s *Store) SubmitQuizAnswer(ctx context.Context, quizID, answerID string, u
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO quiz_attempts (quiz_id, question_id, answer_id, telegram_user_id, is_correct)
 		VALUES ($1, $2, $3, nullif($4::bigint, 0), $5)
-		ON CONFLICT ON CONSTRAINT quiz_attempts_quiz_telegram_user_unique DO NOTHING
+		ON CONFLICT (quiz_id, telegram_user_id) WHERE telegram_user_id IS NOT NULL DO NOTHING
 		RETURNING id::text`,
 		quizID,
 		questionID,

@@ -26,7 +26,7 @@ $method = $_SERVER["REQUEST_METHOD"];
 $path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
 $body = json_decode(file_get_contents("php://input"), true);
 if (!is_array($body)) $body = [];
-$ip = $_SERVER["REMOTE_ADDR"] ?? "unknown";
+$ip = getClientIP();
 
 rateLimit($ip, $path);
 
@@ -120,6 +120,27 @@ function isUuid($value) {
     return is_string($value) && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $value);
 }
 
+function getClientIP() {
+    // Cloudflare
+    if (!empty($_SERVER["HTTP_CF_CONNECTING_IP"])) {
+        return $_SERVER["HTTP_CF_CONNECTING_IP"];
+    }
+    // X-Forwarded-For (может содержать несколько IP, берём первый)
+    if (!empty($_SERVER["HTTP_X_FORWARDED_FOR"])) {
+        $ips = explode(",", $_SERVER["HTTP_X_FORWARDED_FOR"]);
+        $ip = trim($ips[0]);
+        if (filter_var($ip, FILTER_VALIDATE_IP)) {
+            return $ip;
+        }
+    }
+    // X-Real-IP (nginx)
+    if (!empty($_SERVER["HTTP_X_REAL_IP"])) {
+        return $_SERVER["HTTP_X_REAL_IP"];
+    }
+    // Fallback
+    return $_SERVER["REMOTE_ADDR"] ?? "unknown";
+}
+
 function cleanText($value, $max) {
     $value = trim((string)$value);
     if (strlen($value) > $max) $value = substr($value, 0, $max);
@@ -152,7 +173,7 @@ function listPolls($pdo) {
     echo json_encode(["items" => $stmt->fetchAll()], JSON_UNESCAPED_UNICODE);
 }
 
-function getPoll($pdo, $id) {
+function getPoll($pdo, $id, $ownerKey = null) {
     if (!isUuid($id)) jsonError(400, "bad_id", "Неверный ID");
     $stmt = $pdo->prepare("SELECT id::text, title, description, owner_user_id FROM polls WHERE id = :id");
     $stmt->execute([":id" => $id]);
@@ -161,12 +182,33 @@ function getPoll($pdo, $id) {
     $stmt = $pdo->prepare("SELECT po.id::text, po.option_text as text, COUNT(pv.id)::int as votes FROM poll_options po LEFT JOIN poll_votes pv ON pv.option_id = po.id WHERE po.poll_id = :pid GROUP BY po.id, po.option_text, po.position ORDER BY po.position");
     $stmt->execute([":pid" => $id]);
     $poll["options"] = $stmt->fetchAll();
+    
+    // Получаем selected_option_id для текущего пользователя (по device_hash)
+    $userAgent = substr($_SERVER["HTTP_USER_AGENT"] ?? "", 0, 1024);
+    $acceptLang = substr($_SERVER["HTTP_ACCEPT_LANGUAGE"] ?? "", 0, 256);
+    $ip = getClientIP();
+    $deviceHash = hash("sha256", $userAgent . "|" . $acceptLang . "|" . $ip);
+    
+    $stmt = $pdo->prepare("SELECT option_id FROM poll_votes WHERE poll_id = :pid AND device_hash = :dh LIMIT 1");
+    $stmt->execute([":pid" => $id, ":dh" => $deviceHash]);
+    $voteRow = $stmt->fetch();
+    $poll["selected_option_id"] = $voteRow ? $voteRow["option_id"] : null;
+    
+    // Проверка прав владельца
     $sessionUser = getSessionUser($pdo);
-    $poll["is_owner"] = $sessionUser !== null && (int)$poll["owner_user_id"] === $sessionUser;
+    $poll["is_owner"] = false;
+    if ($ownerKey !== null) {
+        $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+        $stmt = $pdo->prepare("SELECT 1 FROM polls WHERE id = :pid AND owner_key_hash = :okh");
+        $stmt->execute([":pid" => $id, ":okh" => $ownerKeyHash]);
+        $poll["is_owner"] = (bool)$stmt->fetch();
+    } elseif ($sessionUser !== null) {
+        $poll["is_owner"] = (int)$poll["owner_user_id"] === $sessionUser;
+    }
     unset($poll["owner_user_id"]);
     echo json_encode($poll, JSON_UNESCAPED_UNICODE);
 }
-
+    
 function createPoll($pdo) {
     global $body;
     $title = cleanText($body["title"] ?? "", 160);
