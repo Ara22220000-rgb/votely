@@ -145,7 +145,7 @@ func (s *apiServer) createPoll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите через Telegram, чтобы создать опрос.")
 		return
 	}
-	input, err := req.toInput(userID, keyedHash(s.hashSecret, "owner:"+ownerKey))
+	input, err := req.toInput(userID, userID, keyedHash(s.hashSecret, "owner:"+ownerKey))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
@@ -182,7 +182,7 @@ func (s *apiServer) getPoll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden", "Опрос доступен только по приватной ссылке.")
 		return
 	}
-	poll, err := s.store.GetPoll(r.Context(), id, s.sessionUserID(r))
+	poll, err := s.store.GetPoll(r.Context(), id, s.sessionUserID(r), ownerKeyHash, isAdminUser(s.sessionUserID(r)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Опрос не найден.")
 		return
@@ -249,10 +249,6 @@ func (s *apiServer) votePoll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_option", "Выберите вариант ответа.")
 		return
 	}
-	if s.sessionUserID(r) == 0 {
-		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите через Telegram, чтобы проголосовать.")
-		return
-	}
 	identity, err := s.voteIdentity(w, r)
 	if err != nil {
 		s.logger.Error("vote identity failed", "error", err)
@@ -292,7 +288,9 @@ func (s *apiServer) pollStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ownerKeyHash := s.ownerKeyHash(r)
-	stats, err := s.store.PollStats(r.Context(), id, ownerKeyHash, s.sessionUserID(r), isAdminUser(s.sessionUserID(r)))
+	userID := s.sessionUserID(r)
+
+	stats, err := s.store.PollStats(r.Context(), id, ownerKeyHash, userID, isAdminUser(userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusForbidden, "forbidden", "Статистика доступна владельцу опроса.")
 		return
@@ -1117,7 +1115,7 @@ func (s *apiServer) verifyTelegramLogin(payload map[string]string, botToken stri
 	// See: https://core.telegram.org/widgets/login#checking-authorization
 	botToken = strings.TrimSpace(botToken)
 	tokenHash := sha256.Sum256([]byte(botToken))
-	
+
 	mac := hmac.New(sha256.New, tokenHash[:])
 	_, _ = mac.Write([]byte(signedString))
 	expected := hex.EncodeToString(mac.Sum(nil))

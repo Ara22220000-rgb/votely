@@ -43,6 +43,18 @@ switch (true) {
     case $method === "POST" && preg_match("#^/api/v1/polls/([^/]+)/votes$#", $path, $m):
         votePoll($pdo, $m[1]);
         break;
+    case $method === "POST" && preg_match("#^/api/v1/polls/([^/]+)/visits$#", $path, $m):
+        recordPollVisit($pdo, $m[1]);
+        break;
+    case $method === "GET" && preg_match("#^/api/v1/polls/([^/]+)/links$#", $path, $m):
+        getPollLinks($pdo, $m[1]);
+        break;
+    case $method === "POST" && preg_match("#^/api/v1/polls/([^/]+)/links$#", $path, $m):
+        createPollLink($pdo, $m[1]);
+        break;
+    case $method === "DELETE" && preg_match("#^/api/v1/polls/([^/]+)/links/([^/]+)$#", $path, $m):
+        deletePollLink($pdo, $m[1], $m[2]);
+        break;
     case $method === "GET" && preg_match("#^/api/v1/polls/([^/]+)/stats$#", $path, $m):
         pollStats($pdo, $m[1]);
         break;
@@ -98,7 +110,7 @@ function rateLimit($ip, $path) {
         $rateData = ["count" => 0, "reset" => time() + 60];
     }
     $rateData["count"]++;
-    file_put_contents($rateFile, json_encode($rateData), LOCK_EX);
+    @file_put_contents($rateFile, json_encode($rateData), LOCK_EX);
     if ($rateData["count"] > $limit) {
         jsonError(429, "rate_limited", "Слишком много запросов");
     }
@@ -142,13 +154,16 @@ function listPolls($pdo) {
 
 function getPoll($pdo, $id) {
     if (!isUuid($id)) jsonError(400, "bad_id", "Неверный ID");
-    $stmt = $pdo->prepare("SELECT id::text, title, description FROM polls WHERE id = :id");
+    $stmt = $pdo->prepare("SELECT id::text, title, description, owner_user_id FROM polls WHERE id = :id");
     $stmt->execute([":id" => $id]);
     $poll = $stmt->fetch();
     if (!$poll) jsonError(404, "not_found", "Опрос не найден");
     $stmt = $pdo->prepare("SELECT po.id::text, po.option_text as text, COUNT(pv.id)::int as votes FROM poll_options po LEFT JOIN poll_votes pv ON pv.option_id = po.id WHERE po.poll_id = :pid GROUP BY po.id, po.option_text, po.position ORDER BY po.position");
     $stmt->execute([":pid" => $id]);
     $poll["options"] = $stmt->fetchAll();
+    $sessionUser = getSessionUser($pdo);
+    $poll["is_owner"] = $sessionUser !== null && (int)$poll["owner_user_id"] === $sessionUser;
+    unset($poll["owner_user_id"]);
     echo json_encode($poll, JSON_UNESCAPED_UNICODE);
 }
 
@@ -163,8 +178,8 @@ function createPoll($pdo) {
     $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare("INSERT INTO polls (title, description, owner_user_id, owner_key_hash) VALUES (:t, :d, :uid, :okh) RETURNING id::text");
-        $stmt->execute([":t" => $title, ":d" => $description, ":uid" => $userId, ":okh" => $ownerKeyHash]);
+        $stmt = $pdo->prepare("INSERT INTO polls (title, description, owner_user_id, owner_telegram_id, owner_key_hash) VALUES (:t, :d, :uid, :tgid, :okh) RETURNING id::text");
+        $stmt->execute([":t" => $title, ":d" => $description, ":uid" => $userId, ":tgid" => $userId, ":okh" => $ownerKeyHash]);
         $id = $stmt->fetch()["id"];
         $stmt = $pdo->prepare("INSERT INTO poll_options (poll_id, option_text, position) VALUES (:pid, :txt, :pos)");
         foreach ($options as $i => $opt) {
@@ -183,8 +198,18 @@ function votePoll($pdo, $pollId) {
     if (!isUuid($pollId)) jsonError(400, "bad_id", "Неверный ID");
     $oid = $body["option_id"] ?? null;
     if (!isUuid($oid)) jsonError(400, "bad_option", "Выберите вариант");
+    
+    // Проверяем, существует ли опрос и не закрыт ли он
+    $stmt = $pdo->prepare("SELECT closed_at FROM polls WHERE id = :pid");
+    $stmt->execute([":pid" => $pollId]);
+    $poll = $stmt->fetch();
+    if (!$poll) jsonError(404, "not_found", "Опрос не найден");
+    if ($poll["closed_at"] !== null) {
+        jsonError(409, "poll_closed", "Голосование уже завершено");
+    }
+    
     $voteRateFile = sys_get_temp_dir() . "/votely_vote_" . md5($ip . $pollId);
-    if (file_exists($voteRateFile) && time() - (int)file_get_contents($voteRateFile) < 60) {
+    if (file_exists($voteRateFile) && time() - (int)@file_get_contents($voteRateFile) < 60) {
         jsonError(429, "vote_rate_limited", "Подождите перед повторным голосованием");
     }
     $stmt = $pdo->prepare("SELECT 1 FROM poll_options WHERE id = :oid AND poll_id = :pid");
@@ -193,23 +218,252 @@ function votePoll($pdo, $pollId) {
     $userAgent = substr($_SERVER["HTTP_USER_AGENT"] ?? "", 0, 1024);
     $acceptLang = substr($_SERVER["HTTP_ACCEPT_LANGUAGE"] ?? "", 0, 256);
     $deviceHash = hash("sha256", $userAgent . "|" . $acceptLang . "|" . $ip);
+    
+    // Обработка link-параметра для отслеживания источника
+    $linkSlug = $_GET["link"] ?? "";
+    $shareLinkId = null;
+    if ($linkSlug !== "") {
+        $stmt = $pdo->prepare("SELECT id FROM poll_share_links WHERE poll_id = :pid AND slug = :slug LIMIT 1");
+        $stmt->execute([":pid" => $pollId, ":slug" => $linkSlug]);
+        $linkRow = $stmt->fetch();
+        if ($linkRow) {
+            $shareLinkId = $linkRow["id"];
+        }
+    }
+    
     try {
-        $stmt = $pdo->prepare("INSERT INTO poll_votes (poll_id, option_id, device_hash, ip_hash) VALUES (:pid, :oid, :dh, :ih)");
-        $stmt->execute([":pid" => $pollId, ":oid" => $oid, ":dh" => $deviceHash, ":ih" => hash("sha256", $ip)]);
-        file_put_contents($voteRateFile, time(), LOCK_EX);
+        $ipHash = hash("sha256", $ip);
+        if ($shareLinkId !== null) {
+            $stmt = $pdo->prepare("
+                INSERT INTO poll_votes (poll_id, option_id, device_hash, ip_hash, share_link_id)
+                VALUES (:pid, :oid, :dh, :ih, :lid)
+                ON CONFLICT ON CONSTRAINT poll_votes_poll_device_hash_unique DO NOTHING
+            ");
+            $stmt->execute([":pid" => $pollId, ":oid" => $oid, ":dh" => $deviceHash, ":ih" => $ipHash, ":lid" => $shareLinkId]);
+        } else {
+            $stmt = $pdo->prepare("
+                INSERT INTO poll_votes (poll_id, option_id, device_hash, ip_hash)
+                VALUES (:pid, :oid, :dh, :ih)
+                ON CONFLICT ON CONSTRAINT poll_votes_poll_device_hash_unique DO NOTHING
+            ");
+            $stmt->execute([":pid" => $pollId, ":oid" => $oid, ":dh" => $deviceHash, ":ih" => $ipHash]);
+        }
+        if ($stmt->rowCount() === 0) {
+            jsonError(409, "already_voted", "Вы уже голосовали");
+        }
+        @file_put_contents($voteRateFile, time(), LOCK_EX);
+    } catch (PDOException $e) {
+        // Проверяем код ошибки SQL (SQLSTATE)
+        $sqlState = $e->getCode();
+        // SQLSTATE 23505 = unique_violation (PostgreSQL)
+        if ($sqlState === '23505' || (int)$sqlState === 23505) {
+            jsonError(409, "already_voted", "Вы уже голосовали");
+        }
+        // Логируем ошибку для отладки (в production заменить на логгер)
+        error_log("votePoll PDOException: " . $e->getMessage() . " SQLSTATE: " . $sqlState);
+        // Другая ошибка БД
+        jsonError(500, "db_error", "Не удалось сохранить голос");
     } catch (Exception $e) {
-        jsonError(409, "already_voted", "Вы уже голосовали");
+        error_log("votePoll Exception: " . $e->getMessage());
+        jsonError(500, "internal_error", "Не удалось сохранить голос");
     }
     getPoll($pdo, $pollId);
+}
+
+function recordPollVisit($pdo, $pollId) {
+    global $ip;
+    if (!isUuid($pollId)) jsonError(400, "bad_id", "Неверный ID");
+    
+    $linkSlug = $_GET["link"] ?? "";
+    $shareLinkId = null;
+    
+    if ($linkSlug !== "") {
+        $stmt = $pdo->prepare("SELECT id FROM poll_share_links WHERE poll_id = :pid AND slug = :slug LIMIT 1");
+        $stmt->execute([":pid" => $pollId, ":slug" => $linkSlug]);
+        $linkRow = $stmt->fetch();
+        if ($linkRow) {
+            $shareLinkId = $linkRow["id"];
+        }
+    }
+    
+    // Записываем посещение через traffic_events
+    $userAgent = substr($_SERVER["HTTP_USER_AGENT"] ?? "", 0, 1024);
+    $deviceHash = hash("sha256", $userAgent . "|" . $ip);
+    $path = $_SERVER["REQUEST_URI"] ?? "/view.php";
+    
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO traffic_events 
+                (event_type, path, method, poll_id, device_hash, ip_hash, user_agent, utm_source, utm_medium, share_link_id) 
+            VALUES 
+                ('visit', :path, 'GET', :pid, :dh, :ih, :ua, :utm_source, :utm_medium, :lid)
+            ON CONFLICT DO NOTHING
+        ");
+        $stmt->execute([
+            ":path" => $path,
+            ":pid" => $pollId,
+            ":dh" => $deviceHash,
+            ":ih" => hash("sha256", $ip),
+            ":ua" => $userAgent,
+            ":utm_source" => $linkSlug ?: '',
+            ":utm_medium" => $linkSlug ? 'named' : '',
+            ":lid" => $shareLinkId
+        ]);
+    } catch (Exception $e) {
+        // Игнорируем ошибки посещений — это не критично
+    }
+    
+    echo json_encode(["success" => true], JSON_UNESCAPED_UNICODE);
+}
+
+function getPollLinks($pdo, $pollId) {
+    if (!isUuid($pollId)) jsonError(400, "bad_id", "Неверный ID");
+    
+    $ownerKey = $_GET["owner_key"] ?? "";
+    $sessionUser = getSessionUser($pdo);
+    
+    // Проверяем доступ владельца
+    $isOwner = false;
+    if ($ownerKey !== "") {
+        $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+        $stmt = $pdo->prepare("SELECT 1 FROM polls WHERE id = :pid AND owner_key_hash = :okh");
+        $stmt->execute([":pid" => $pollId, ":okh" => $ownerKeyHash]);
+        $isOwner = (bool)$stmt->fetch();
+    } elseif ($sessionUser !== null) {
+        $stmt = $pdo->prepare("SELECT 1 FROM polls WHERE id = :pid AND owner_user_id = :uid");
+        $stmt->execute([":pid" => $pollId, ":uid" => $sessionUser]);
+        $isOwner = (bool)$stmt->fetch();
+    }
+    
+    if (!$isOwner) {
+        jsonError(403, "forbidden", "Нет доступа");
+    }
+    
+    $stmt = $pdo->prepare("
+        SELECT 
+            psl.id::text, 
+            psl.name, 
+            psl.slug, 
+            psl.created_at::text,
+            COUNT(CASE WHEN te.event_type = 'visit' THEN 1 END)::int as visits,
+            COUNT(CASE WHEN te.event_type = 'vote' OR pv.id IS NOT NULL THEN 1 END)::int as votes
+        FROM poll_share_links psl
+        LEFT JOIN traffic_events te ON te.share_link_id = psl.id
+        LEFT JOIN poll_votes pv ON pv.share_link_id = psl.id AND pv.poll_id = :pid
+        WHERE psl.poll_id = :pid
+        GROUP BY psl.id, psl.name, psl.slug, psl.created_at
+        ORDER BY psl.created_at DESC
+    ");
+    $stmt->execute([":pid" => $pollId]);
+    $items = $stmt->fetchAll();
+    
+    // Добавляем URL к каждой ссылке
+    $baseUrl = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'];
+    foreach ($items as &$item) {
+        $item["url"] = $baseUrl . '/view.php?type=poll&id=' . $pollId . '&link=' . urlencode($item["slug"]) . '&utm_source=' . urlencode($item["slug"]) . '&utm_medium=named';
+    }
+    
+    echo json_encode(["items" => $items], JSON_UNESCAPED_UNICODE);
+}
+
+function createPollLink($pdo, $pollId) {
+    global $body;
+    if (!isUuid($pollId)) jsonError(400, "bad_id", "Неверный ID");
+    
+    $ownerKey = $_GET["owner_key"] ?? "";
+    $sessionUser = getSessionUser($pdo);
+    
+    // Проверяем доступ владельца
+    $isOwner = false;
+    if ($ownerKey !== "") {
+        $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+        $stmt = $pdo->prepare("SELECT 1 FROM polls WHERE id = :pid AND owner_key_hash = :okh");
+        $stmt->execute([":pid" => $pollId, ":okh" => $ownerKeyHash]);
+        $isOwner = (bool)$stmt->fetch();
+    } elseif ($sessionUser !== null) {
+        $stmt = $pdo->prepare("SELECT 1 FROM polls WHERE id = :pid AND owner_user_id = :uid");
+        $stmt->execute([":pid" => $pollId, ":uid" => $sessionUser]);
+        $isOwner = (bool)$stmt->fetch();
+    }
+    
+    if (!$isOwner) {
+        jsonError(403, "forbidden", "Нет доступа");
+    }
+    
+    $name = cleanText($body["name"] ?? "", 80);
+    if ($name === "") {
+        jsonError(400, "invalid_payload", "Введите название ссылки");
+    }
+    
+    // Создаём slug из названия
+    $slug = mb_strtolower(preg_replace('/[^a-zA-Z0-9_-]+/', '-', $name));
+    $slug = trim($slug, '-');
+    if ($slug === "") {
+        $slug = substr(md5($name . time()), 0, 8);
+    }
+    
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO poll_share_links (poll_id, name, slug, utm_source, utm_medium) 
+            VALUES (:pid, :name, :slug, :slug, 'named')
+            RETURNING id::text, name, slug, created_at::text
+        ");
+        $stmt->execute([":pid" => $pollId, ":name" => $name, ":slug" => $slug]);
+        $link = $stmt->fetch();
+        
+        $baseUrl = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'];
+        $link["url"] = $baseUrl . '/view.php?type=poll&id=' . $pollId . '&link=' . urlencode($link["slug"]) . '&utm_source=' . urlencode($link["slug"]) . '&utm_medium=named';
+        
+        echo json_encode($link, JSON_UNESCAPED_UNICODE);
+    } catch (Exception $e) {
+        jsonError(409, "duplicate", "Ссылка с таким названием уже существует");
+    }
+}
+
+function deletePollLink($pdo, $pollId, $linkId) {
+    if (!isUuid($pollId)) jsonError(400, "bad_id", "Неверный ID опроса");
+    if (!isUuid($linkId)) jsonError(400, "bad_id", "Неверный ID ссылки");
+    
+    $ownerKey = $_GET["owner_key"] ?? "";
+    $sessionUser = getSessionUser($pdo);
+    
+    // Проверяем доступ владельца
+    $isOwner = false;
+    if ($ownerKey !== "") {
+        $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+        $stmt = $pdo->prepare("SELECT 1 FROM polls WHERE id = :pid AND owner_key_hash = :okh");
+        $stmt->execute([":pid" => $pollId, ":okh" => $ownerKeyHash]);
+        $isOwner = (bool)$stmt->fetch();
+    } elseif ($sessionUser !== null) {
+        $stmt = $pdo->prepare("SELECT 1 FROM polls WHERE id = :pid AND owner_user_id = :uid");
+        $stmt->execute([":pid" => $pollId, ":uid" => $sessionUser]);
+        $isOwner = (bool)$stmt->fetch();
+    }
+    
+    if (!$isOwner) {
+        jsonError(403, "forbidden", "Нет доступа");
+    }
+    
+    $stmt = $pdo->prepare("DELETE FROM poll_share_links WHERE id = :lid AND poll_id = :pid");
+    $stmt->execute([":lid" => $linkId, ":pid" => $pollId]);
+    
+    echo json_encode(["success" => true], JSON_UNESCAPED_UNICODE);
 }
 
 function pollStats($pdo, $pollId) {
     if (!isUuid($pollId)) jsonError(400, "bad_id", "Неверный ID");
     $ownerKey = $_GET["owner_key"] ?? "";
-    if ($ownerKey === "") jsonError(403, "forbidden", "Нет доступа");
-    $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
-    $stmt = $pdo->prepare("SELECT id::text, title, description, is_anonymous, shuffle_options, allowed_countries, closed_at IS NOT NULL as is_closed FROM polls WHERE id = :pid AND owner_key_hash = :okh");
-    $stmt->execute([":pid" => $pollId, ":okh" => $ownerKeyHash]);
+    $sessionUser = getSessionUser($pdo);
+    if ($ownerKey !== "") {
+        $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+        $stmt = $pdo->prepare("SELECT id::text, title, description, is_anonymous, shuffle_options, allowed_countries, closed_at IS NOT NULL as is_closed FROM polls WHERE id = :pid AND owner_key_hash = :okh");
+        $stmt->execute([":pid" => $pollId, ":okh" => $ownerKeyHash]);
+    } elseif ($sessionUser !== null) {
+        $stmt = $pdo->prepare("SELECT id::text, title, description, is_anonymous, shuffle_options, allowed_countries, closed_at IS NOT NULL as is_closed FROM polls WHERE id = :pid AND (owner_user_id = :uid OR owner_telegram_id = :uid)");
+        $stmt->execute([":pid" => $pollId, ":uid" => $sessionUser]);
+    } else {
+        jsonError(403, "forbidden", "Нет доступа");
+    }
     $poll = $stmt->fetch();
     if (!$poll) jsonError(403, "forbidden", "Нет доступа");
     $stmt = $pdo->prepare("SELECT po.id::text, po.option_text as text, COUNT(pv.id)::int as votes FROM poll_options po LEFT JOIN poll_votes pv ON pv.option_id = po.id WHERE po.poll_id = :pid GROUP BY po.id, po.option_text, po.position ORDER BY po.position");
@@ -220,7 +474,99 @@ function pollStats($pdo, $pollId) {
         $option["votes"] = (int)$option["votes"];
         $option["percent"] = $totalVotes > 0 ? (int)round($option["votes"] / $totalVotes * 100) : 0;
     }
-    echo json_encode(["poll" => $poll, "options" => $options, "total_votes" => $totalVotes, "analytics" => []], JSON_UNESCAPED_UNICODE);
+    
+    // Получаем analytics: ссылки, браузеры, устройства, ОС, страны, источники
+    $analytics = [];
+    
+    // Именные ссылки
+    $stmt = $pdo->prepare("
+        SELECT 
+            psl.id::text, 
+            psl.name, 
+            psl.slug, 
+            COUNT(CASE WHEN te.event_type = 'visit' THEN 1 END)::int as visits,
+            COUNT(pv.id)::int as votes
+        FROM poll_share_links psl
+        LEFT JOIN traffic_events te ON te.share_link_id = psl.id
+        LEFT JOIN poll_votes pv ON pv.share_link_id = psl.id
+        WHERE psl.poll_id = :pid
+        GROUP BY psl.id, psl.name, psl.slug
+        ORDER BY visits DESC, votes DESC
+    ");
+    $stmt->execute([":pid" => $pollId]);
+    $analytics["links"] = $stmt->fetchAll();
+    
+    // Браузеры
+    $stmt = $pdo->prepare("
+        SELECT 
+            COALESCE(browser_type, 'Unknown') as name, 
+            COUNT(*)::int as count 
+        FROM poll_votes 
+        WHERE poll_id = :pid 
+        GROUP BY browser_type 
+        ORDER BY count DESC 
+        LIMIT 10
+    ");
+    $stmt->execute([":pid" => $pollId]);
+    $analytics["browsers"] = $stmt->fetchAll();
+    
+    // Устройства
+    $stmt = $pdo->prepare("
+        SELECT 
+            COALESCE(device_type, 'Unknown') as name, 
+            COUNT(*)::int as count 
+        FROM poll_votes 
+        WHERE poll_id = :pid 
+        GROUP BY device_type 
+        ORDER BY count DESC 
+        LIMIT 10
+    ");
+    $stmt->execute([":pid" => $pollId]);
+    $analytics["devices"] = $stmt->fetchAll();
+    
+    // ОС
+    $stmt = $pdo->prepare("
+        SELECT 
+            COALESCE(os_type, 'Unknown') as name, 
+            COUNT(*)::int as count 
+        FROM poll_votes 
+        WHERE poll_id = :pid 
+        GROUP BY os_type 
+        ORDER BY count DESC 
+        LIMIT 10
+    ");
+    $stmt->execute([":pid" => $pollId]);
+    $analytics["os"] = $stmt->fetchAll();
+    
+    // Страны
+    $stmt = $pdo->prepare("
+        SELECT 
+            COALESCE(ip_country, 'Unknown') as name, 
+            COUNT(*)::int as count 
+        FROM poll_votes 
+        WHERE poll_id = :pid 
+        GROUP BY ip_country 
+        ORDER BY count DESC 
+        LIMIT 10
+    ");
+    $stmt->execute([":pid" => $pollId]);
+    $analytics["locations"] = $stmt->fetchAll();
+    
+    // Источники (utm_source)
+    $stmt = $pdo->prepare("
+        SELECT 
+            COALESCE(NULLIF(utm_source, ''), 'direct') as name, 
+            COUNT(*)::int as count 
+        FROM poll_votes 
+        WHERE poll_id = :pid 
+        GROUP BY utm_source 
+        ORDER BY count DESC 
+        LIMIT 10
+    ");
+    $stmt->execute([":pid" => $pollId]);
+    $analytics["sources"] = $stmt->fetchAll();
+    
+    echo json_encode(["poll" => $poll, "options" => $options, "total_votes" => $totalVotes, "analytics" => $analytics], JSON_UNESCAPED_UNICODE);
 }
 
 function listQuizzes($pdo) {

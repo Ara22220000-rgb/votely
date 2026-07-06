@@ -933,6 +933,7 @@ a {
 
 .ghost-button {
     min-height: 40px;
+    padding-top: 10px;
     padding: 0 16px;
     border-radius: 10px;
     background: var(--accent-rgba-soft);
@@ -1477,6 +1478,15 @@ a {
     width: min(100%, 240px);
     height: auto;
     display: block;
+}
+
+.pie-svg--mini {
+    width: min(100%, 100px);
+    height: auto;
+}
+
+.pie-svg circle[opacity] {
+    pointer-events: none;
 }
 
 .stats-empty {

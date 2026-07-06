@@ -612,6 +612,55 @@ function renderCards(list, items, type) {
     });
 }
 
+async function initMyPollsPage(root) {
+    const list = root.querySelector('[data-list]');
+    if (!list) return;
+    try {
+        const state = await authReady;
+        if (!state.authenticated) {
+            renderMessage(list, 'Войдите в аккаунт, чтобы увидеть свои опросы.', false);
+            return;
+        }
+        const data = await apiJSON('/api/v1/me/polls');
+        renderMyPolls(list, data.items || []);
+    } catch (e) {
+        renderMessage(list, e.message, true);
+    }
+}
+
+function renderMyPolls(list, items) {
+    list.replaceChildren();
+    if (!items.length) {
+        renderMessage(list, 'У вас пока нет опросов. Создайте первый!', false);
+        return;
+    }
+    items.forEach((item) => {
+        const card = document.createElement('a');
+        card.className = 'content-card';
+        card.href = 'view.php?type=poll&id=' + encodeURIComponent(item.id);
+        const votesLabel = (item.total_votes != null && item.total_votes > 0)
+            ? `${item.total_votes} ${pluralVotes(item.total_votes)}`
+            : 'Нет голосов';
+        card.innerHTML = `
+            <h2>${escapeHtml(item.title)}</h2>
+            <p>${escapeHtml(item.description || 'Опрос без описания')}</p>
+            <div class="content-card__footer">
+                <span>Открыть опрос</span>
+                <small class="content-card__votes">${escapeHtml(votesLabel)}</small>
+            </div>
+        `;
+        list.append(card);
+    });
+}
+
+function pluralVotes(count) {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'голос';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'голоса';
+    return 'голосов';
+}
+
 async function initDetailPage(root) {
     const params = new URLSearchParams(window.location.search);
     const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
@@ -657,17 +706,30 @@ function renderDetail(container, data, type, id, ownerKey = '') {
     content.className = 'viewer__content';
     container.append(title, desc, content);
 
-    if (type === 'poll' && ownerKey) {
-        renderOwnerStats(container, data, id, ownerKey);
-    } else if (type === 'quiz') {
+    if (type === 'quiz') {
         renderQuizView(content, data);
     } else {
         renderPollView(content, data, id);
     }
+
+    // Показываем ссылку на статистику только владельцу опроса
+    if (type === 'poll' && data.is_owner) {
+        const statsLink = document.createElement('a');
+        statsLink.className = 'primary-button';
+        const statsUrl = 'stats.php?id=' + encodeURIComponent(id) + (ownerKey ? '&owner_key=' + encodeURIComponent(ownerKey) : '');
+        statsLink.href = statsUrl;
+        statsLink.textContent = 'Посмотреть статистику';
+        statsLink.style.marginTop = '24px';
+        statsLink.style.display = 'inline-flex';
+        statsLink.style.alignItems = 'center';
+        statsLink.style.justifyContent = 'center';
+        container.append(statsLink);
+    }
 }
 
 async function renderOwnerStats(container, poll, id, ownerKey) {
-    const stats = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/stats?owner_key=' + encodeURIComponent(ownerKey));
+    const statsQuery = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+    const stats = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/stats' + statsQuery);
     await renderStatsBlock(container, poll, stats, id, ownerKey);
 }
 
@@ -681,7 +743,8 @@ async function initStatsPage() {
     try {
         const pollQuery = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
         const poll = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + pollQuery);
-        const stats = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/stats?owner_key=' + encodeURIComponent(ownerKey));
+        const statsQuery = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+        const stats = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/stats' + statsQuery);
         if (title) title.textContent = poll.title || 'Статистика';
         const holder = document.createElement('div');
         await renderStatsBlock(holder, poll, stats, id, ownerKey);
@@ -766,20 +829,42 @@ function analyticsCard(title, items) {
     const card = document.createElement('article');
     card.className = 'analytics-card';
     card.innerHTML = `<h3 class="analytics-card__title">${escapeHtml(title)}</h3>`;
+    if (!items.length) {
+        const empty = document.createElement('p');
+        empty.className = 'stats-empty stats-empty--small';
+        empty.textContent = 'Нет данных';
+        card.append(empty);
+        return card;
+    }
+    const body = document.createElement('div');
+    body.className = 'analytics-card__body';
+    const chartWrap = document.createElement('div');
+    chartWrap.className = 'analytics-card__chart';
+    chartWrap.append(buildMiniPie(items));
     const list = document.createElement('div');
     list.className = 'analytics-list';
-    if (!items.length) {
-        list.innerHTML = '<p class="stats-empty stats-empty--small">Нет данных</p>';
-    } else {
-        items.forEach((item) => {
-            const row = document.createElement('div');
-            row.className = 'analytics-list__row';
-            row.innerHTML = `<span class="analytics-list__name">${escapeHtml(item.name || 'Unknown')}</span><span class="analytics-list__count">${item.count || 0}</span>`;
-            list.append(row);
-        });
-    }
-    card.append(list);
+    items.forEach((item, index) => {
+        const row = document.createElement('div');
+        row.className = 'analytics-list__row';
+        row.innerHTML = `
+            <span class="analytics-list__name">
+                <span class="analytics-swatch" style="background:${chartColor(index)}"></span>
+                ${escapeHtml(item.name || 'Unknown')}
+            </span>
+            <span class="analytics-list__count">${item.count || 0}</span>
+        `;
+        list.append(row);
+    });
+    body.append(chartWrap, list);
+    card.append(body);
     return card;
+}
+
+function buildMiniPie(items) {
+    const options = items.map((item) => ({ text: item.name, votes: item.count || 0 }));
+    const svg = buildPieSvg(options);
+    svg.classList.add('pie-svg--mini');
+    return svg;
 }
 
 async function buildShareLinksSection(pollID, ownerKey, initialLinks) {
@@ -924,11 +1009,6 @@ function renderPollView(container, data, id) {
         if (selectedOptionID) return;
         btn.disabled = true;
         try {
-            const state = await authReady;
-            if (!state.authenticated) {
-                await openLoginFromConfig();
-                return;
-            }
             const linkSlug = new URLSearchParams(window.location.search).get('link') || window.sessionStorage.getItem('votely_link_' + id) || '';
             const voteQuery = linkSlug ? '?link=' + encodeURIComponent(linkSlug) : '';
             const result = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/votes' + voteQuery, {
@@ -1062,10 +1142,36 @@ function buildPieSvg(options) {
         svg.append(circle);
         return svg;
     }
+    
+    // Проверяем, все ли голоса за один вариант (100%)
+    const hasSingleOption = options.some(opt => opt.votes === total);
+    
+    if (hasSingleOption && options.length === 1) {
+        // Рисуем полный круг с небольшой меткой для 100%
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', piePath(60, 60, 48, -90, 270));
+        path.setAttribute('fill', chartColor(0));
+        svg.append(path);
+        
+        // Добавляем небольшую метку-полосу для визуализации 100%
+        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        marker.setAttribute('cx', '60');
+        marker.setAttribute('cy', '12');
+        marker.setAttribute('r', '4');
+        marker.setAttribute('fill', '#fff');
+        marker.setAttribute('opacity', '0.5');
+        svg.append(marker);
+        
+        return svg;
+    }
+    
     let current = -90;
     options.forEach((option, index) => {
+        const votes = option.votes || 0;
+        // Для предотвращения проблем с отображением, минимальный угол - 2 градуса
+        const angle = votes > 0 ? Math.max(2, (votes / total) * 360) : 0;
         const start = current;
-        const end = start + ((option.votes || 0) / total) * 360;
+        const end = start + angle;
         current = end;
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', piePath(60, 60, 48, start, end));

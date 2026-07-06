@@ -132,6 +132,8 @@
     <script src="scripts/main.js?v=<?php echo time(); ?>"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            initToasts();
+            checkAuthStatus();
             initStatsPage();
         });
     </script>

@@ -87,7 +87,7 @@ func derefStr(p *string) string {
 	return *p
 }
 
-func (r createPollRequest) toInput(ownerUserID int64, ownerKeyHash string) (store.PollInput, error) {
+func (r createPollRequest) toInput(ownerUserID int64, ownerTelegramID int64, ownerKeyHash string) (store.PollInput, error) {
 	title, err := validateText(r.Title, "Название опроса", maxTitleLength, true)
 	if err != nil {
 		return store.PollInput{}, err
@@ -126,6 +126,7 @@ func (r createPollRequest) toInput(ownerUserID int64, ownerKeyHash string) (stor
 		Description:      description,
 		Options:          options,
 		OwnerUserID:      ownerUserID,
+		OwnerTelegramID:  ownerTelegramID,
 		OwnerKeyHash:     ownerKeyHash,
 		IsAnonymous:      r.IsAnonymous,
 		ShuffleOptions:   r.ShuffleOptions,

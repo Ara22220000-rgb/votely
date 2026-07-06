@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS quiz_answers (
 );
 
 -- 002_poll_votes.sql
-CREATE UNIQUE INDEX IF NOT EXISTS poll_votes_unique ON poll_votes(poll_id, option_id);
+-- Уникальный индекс удалён - он мешал повторному голосованию
 
 -- 003_poll_search_and_validation.sql
 CREATE INDEX IF NOT EXISTS polls_title_idx ON polls(title);
@@ -54,9 +54,9 @@ CREATE INDEX IF NOT EXISTS polls_description_idx ON polls(description);
 
 -- 004_vote_abuse_protection.sql
 ALTER TABLE poll_votes ADD COLUMN IF NOT EXISTS voter_token_hash text;
+ALTER TABLE poll_votes ADD COLUMN IF NOT EXISTS ip_hash text;
 ALTER TABLE poll_votes ADD COLUMN IF NOT EXISTS device_hash text;
-CREATE UNIQUE INDEX IF NOT EXISTS poll_votes_voter_unique ON poll_votes(poll_id, voter_token_hash);
-CREATE UNIQUE INDEX IF NOT EXISTS poll_votes_device_unique ON poll_votes(poll_id, device_hash);
+-- Индексы перенесены в конец файла для правильного порядка применения
 
 -- 005_traffic_attribution.sql
 CREATE TABLE IF NOT EXISTS traffic_events (
@@ -77,11 +77,13 @@ CREATE TABLE IF NOT EXISTS traffic_events (
     utm_campaign text,
     utm_term text,
     utm_content text,
+    share_link_id uuid REFERENCES poll_share_links(id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS traffic_events_poll_id_idx ON traffic_events(poll_id);
 CREATE INDEX IF NOT EXISTS traffic_events_event_type_idx ON traffic_events(event_type);
+CREATE INDEX IF NOT EXISTS traffic_events_share_link_created_at_idx ON traffic_events(share_link_id, created_at DESC);
 
 -- 006_poll_controls_and_telegram_auth.sql
 CREATE TABLE IF NOT EXISTS telegram_users (
@@ -150,9 +152,11 @@ CREATE TABLE IF NOT EXISTS poll_share_links (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     poll_id uuid NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
     name text NOT NULL,
+    slug text NOT NULL,
     utm_source text NOT NULL DEFAULT '',
-    utm_medium text NOT NULL DEFAULT 'shared',
-    created_at timestamptz NOT NULL DEFAULT now()
+    utm_medium text NOT NULL DEFAULT 'named',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (poll_id, slug)
 );
 
 CREATE TABLE IF NOT EXISTS quiz_share_links (
@@ -190,9 +194,38 @@ CREATE INDEX IF NOT EXISTS quiz_attempts_quiz_id_idx ON quiz_attempts(quiz_id);
 CREATE INDEX IF NOT EXISTS quiz_attempts_question_id_idx ON quiz_attempts(question_id);
 
 -- Дополнительные поля для poll_votes
+ALTER TABLE poll_votes ADD COLUMN IF NOT EXISTS telegram_user_id bigint REFERENCES telegram_users(id) ON DELETE SET NULL;
 ALTER TABLE poll_votes ADD COLUMN IF NOT EXISTS device_type text;
 ALTER TABLE poll_votes ADD COLUMN IF NOT EXISTS os_type text;
 ALTER TABLE poll_votes ADD COLUMN IF NOT EXISTS browser_type text;
 ALTER TABLE poll_votes ADD COLUMN IF NOT EXISTS share_link_id uuid REFERENCES poll_share_links(id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS poll_votes_share_link_id_idx ON poll_votes(share_link_id);
+
+-- Уникальные индексы для защиты от повторного голосования
+-- Индекс для telegram_user_id
+CREATE UNIQUE INDEX IF NOT EXISTS poll_votes_poll_telegram_user_unique
+    ON poll_votes(poll_id, telegram_user_id)
+    WHERE telegram_user_id IS NOT NULL;
+
+-- Индекс для voter_token_hash
+CREATE UNIQUE INDEX IF NOT EXISTS poll_votes_poll_voter_token_hash_unique
+    ON poll_votes(poll_id, voter_token_hash)
+    WHERE voter_token_hash IS NOT NULL;
+
+-- Индекс для ip_hash
+CREATE UNIQUE INDEX IF NOT EXISTS poll_votes_poll_ip_hash_unique
+    ON poll_votes(poll_id, ip_hash)
+    WHERE ip_hash IS NOT NULL;
+
+-- Индекс для device_hash
+CREATE UNIQUE INDEX IF NOT EXISTS poll_votes_poll_device_hash_unique
+    ON poll_votes(poll_id, device_hash)
+    WHERE device_hash IS NOT NULL;
+
+-- Индексы для quiz_attempts
+ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS telegram_user_id bigint REFERENCES telegram_users(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS quiz_attempts_quiz_telegram_user_unique
+    ON quiz_attempts(quiz_id, telegram_user_id)
+    WHERE telegram_user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS quiz_attempts_telegram_user_id_idx ON quiz_attempts(telegram_user_id);

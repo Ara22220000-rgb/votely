@@ -129,6 +129,7 @@ type PollInput struct {
 	Description      string
 	Options          []string
 	OwnerUserID      int64
+	OwnerTelegramID  int64
 	OwnerKeyHash     string
 	IsAnonymous      bool
 	ShuffleOptions   bool
@@ -176,6 +177,7 @@ type PollDetail struct {
 	Description      string       `json:"description"`
 	Options          []OptionItem `json:"options"`
 	SelectedOptionID string       `json:"selected_option_id,omitempty"`
+	IsOwner          bool         `json:"is_owner"`
 	IsAnonymous      bool         `json:"is_anonymous"`
 	ShuffleOptions   bool         `json:"shuffle_options"`
 	AllowedCountries []string     `json:"allowed_countries"`
@@ -288,11 +290,12 @@ func (s *Store) CreatePoll(ctx context.Context, input PollInput) (CreatedEntity,
 
 	var id string
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO polls (title, description, owner_user_id, owner_key_hash, is_anonymous, shuffle_options, allowed_countries, ends_at, visibility)
-		VALUES ($1, $2, nullif($3::bigint, 0), nullif($4, ''), $5, $6, $7, $8, $9) RETURNING id`,
+		`INSERT INTO polls (title, description, owner_user_id, owner_telegram_id, owner_key_hash, is_anonymous, shuffle_options, allowed_countries, ends_at, visibility)
+		VALUES ($1, $2, nullif($3::bigint, 0), nullif($4::bigint, 0), $5, $6, $7, $8, $9, $10) RETURNING id`,
 		strings.TrimSpace(input.Title),
 		strings.TrimSpace(input.Description),
 		input.OwnerUserID,
+		input.OwnerTelegramID,
 		input.OwnerKeyHash,
 		input.IsAnonymous,
 		input.ShuffleOptions,
@@ -415,7 +418,7 @@ func (s *Store) ListUserPolls(ctx context.Context, userID int64) ([]ListItem, er
 		SELECT p.id::text, p.title, p.description, p.created_at::text, count(pv.id)::int
 		FROM polls p
 		LEFT JOIN poll_votes pv ON pv.poll_id = p.id
-		WHERE p.owner_user_id = $1
+		WHERE p.owner_user_id = $1 OR p.owner_telegram_id = $1
 		GROUP BY p.id, p.title, p.description, p.created_at
 		ORDER BY p.created_at DESC
 		LIMIT 100`, userID)
@@ -426,16 +429,17 @@ func (s *Store) ListUserPolls(ctx context.Context, userID int64) ([]ListItem, er
 	return scanList(rows)
 }
 
-func (s *Store) GetPoll(ctx context.Context, id string, userID int64) (PollDetail, error) {
+func (s *Store) GetPoll(ctx context.Context, id string, userID int64, ownerKeyHash string, isAdmin bool) (PollDetail, error) {
 	var poll PollDetail
 	var endsAt sql.NullString
 	var closedAt sql.NullString
 	if err := s.db.QueryRow(ctx, `
 		SELECT id::text, title, description, is_anonymous, shuffle_options, allowed_countries, ends_at::text, closed_at::text, visibility,
-			(closed_at IS NOT NULL OR (ends_at IS NOT NULL AND ends_at <= now()))
+			(closed_at IS NOT NULL OR (ends_at IS NOT NULL AND ends_at <= now())),
+			COALESCE(owner_key_hash = nullif($2, ''), false) OR ($3::bigint <> 0 AND (owner_user_id = $3 OR owner_telegram_id = $3)) OR $4::boolean
 		FROM polls WHERE id = $1`,
-		id,
-	).Scan(&poll.ID, &poll.Title, &poll.Description, &poll.IsAnonymous, &poll.ShuffleOptions, &poll.AllowedCountries, &endsAt, &closedAt, &poll.Visibility, &poll.IsClosed); err != nil {
+		id, ownerKeyHash, userID, isAdmin,
+	).Scan(&poll.ID, &poll.Title, &poll.Description, &poll.IsAnonymous, &poll.ShuffleOptions, &poll.AllowedCountries, &endsAt, &closedAt, &poll.Visibility, &poll.IsClosed, &poll.IsOwner); err != nil {
 		return PollDetail{}, err
 	}
 	if endsAt.Valid {
@@ -511,11 +515,27 @@ func (s *Store) VotePoll(ctx context.Context, pollID, optionID string, identity 
 	}
 
 	var voteID string
-	if err := tx.QueryRow(ctx, `
+	insertQuery := `
 		INSERT INTO poll_votes (poll_id, option_id, telegram_user_id, voter_token_hash, ip_hash, device_hash)
-		VALUES ($1, $2, nullif($3::bigint, 0), $4, $5, $6)
-		ON CONFLICT DO NOTHING
-		RETURNING id::text`,
+		VALUES ($1, $2, nullif($3::bigint, 0), nullif($4, ''), nullif($5, ''), nullif($6, ''))
+	`
+	// Приоритет проверки: telegram_user_id > voter_token_hash > ip_hash > device_hash
+	// Используем ON CONFLICT с правильными уникальными индексами
+	if identity.TelegramUserID != 0 {
+		insertQuery += `ON CONFLICT ON CONSTRAINT poll_votes_poll_telegram_user_unique DO NOTHING`
+	} else if identity.VoterTokenHash != "" {
+		insertQuery += `ON CONFLICT ON CONSTRAINT poll_votes_poll_voter_token_hash_unique DO NOTHING`
+	} else if identity.IPHash != "" {
+		insertQuery += `ON CONFLICT ON CONSTRAINT poll_votes_poll_ip_hash_unique DO NOTHING`
+	} else if identity.DeviceHash != "" {
+		insertQuery += `ON CONFLICT ON CONSTRAINT poll_votes_poll_device_hash_unique DO NOTHING`
+	} else {
+		// Если нет идентификаторов, разрешаем голосовать без защиты от повтора
+		// Это может случиться при голосовании без cookies и без Telegram
+	}
+	insertQuery += ` RETURNING id::text`
+
+	if err := tx.QueryRow(ctx, insertQuery,
 		pollID,
 		optionID,
 		identity.TelegramUserID,
@@ -532,7 +552,7 @@ func (s *Store) VotePoll(ctx context.Context, pollID, optionID string, identity 
 		return VoteResult{}, err
 	}
 
-	poll, err := s.GetPoll(ctx, pollID, identity.TelegramUserID)
+	poll, err := s.GetPoll(ctx, pollID, identity.TelegramUserID, "", false)
 	if err != nil {
 		return VoteResult{}, err
 	}
@@ -557,10 +577,10 @@ func (s *Store) PollAccess(ctx context.Context, pollID, ownerKeyHash string, use
 		SELECT
 			visibility = 'public'
 				OR coalesce(owner_key_hash = nullif($2, ''), false)
-				OR ($3::bigint <> 0 AND owner_user_id = $3)
+				OR ($3::bigint <> 0 AND (owner_user_id = $3 OR owner_telegram_id = $3))
 				OR $4::boolean,
 			coalesce(owner_key_hash = nullif($2, ''), false)
-				OR ($3::bigint <> 0 AND owner_user_id = $3)
+				OR ($3::bigint <> 0 AND (owner_user_id = $3 OR owner_telegram_id = $3))
 				OR $4::boolean
 		FROM polls
 		WHERE id = $1`,
@@ -677,7 +697,7 @@ func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, user
 			SELECT 1 FROM polls
 			WHERE id = $1 AND (
 				owner_key_hash = nullif($2, '')
-				OR ($3::bigint <> 0 AND owner_user_id = $3)
+				OR ($3::bigint <> 0 AND (owner_user_id = $3 OR owner_telegram_id = $3))
 				OR $4::boolean
 			)
 		)`,
@@ -692,7 +712,7 @@ func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, user
 		return PollStats{}, pgx.ErrNoRows
 	}
 
-	poll, err := s.GetPoll(ctx, pollID, userID)
+	poll, err := s.GetPoll(ctx, pollID, userID, ownerKeyHash, admin)
 	if err != nil {
 		return PollStats{}, err
 	}
@@ -1037,7 +1057,7 @@ func (s *Store) SubmitQuizAnswer(ctx context.Context, quizID, answerID string, u
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO quiz_attempts (quiz_id, question_id, answer_id, telegram_user_id, is_correct)
 		VALUES ($1, $2, $3, nullif($4::bigint, 0), $5)
-		ON CONFLICT DO NOTHING
+		ON CONFLICT ON CONSTRAINT quiz_attempts_quiz_telegram_user_unique DO NOTHING
 		RETURNING id::text`,
 		quizID,
 		questionID,

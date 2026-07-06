@@ -8,7 +8,7 @@ func TestCreatePollRequestValidationRejectsLongTitle(t *testing.T) {
 		Options: []string{"yes", "no"},
 	}
 
-	if _, err := req.toInput(0, "ownerhash"); err == nil {
+	if _, err := req.toInput(0, 0, "ownerhash"); err == nil {
 		t.Fatal("expected validation error")
 	}
 }
@@ -19,7 +19,7 @@ func TestCreatePollRequestValidationRejectsControlCharacters(t *testing.T) {
 		Options: []string{"yes", "n\x00o"},
 	}
 
-	if _, err := req.toInput(0, "ownerhash"); err == nil {
+	if _, err := req.toInput(0, 0, "ownerhash"); err == nil {
 		t.Fatal("expected validation error")
 	}
 }
@@ -31,7 +31,7 @@ func TestCreatePollRequestValidationTrimsAcceptedInput(t *testing.T) {
 		Options:     []string{"  yes  ", " no "},
 	}
 
-	input, err := req.toInput(0, "ownerhash")
+	input, err := req.toInput(0, 0, "ownerhash")
 	if err != nil {
 		t.Fatalf("unexpected validation error: %v", err)
 	}

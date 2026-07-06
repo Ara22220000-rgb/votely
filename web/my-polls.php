@@ -31,7 +31,34 @@
                     <form class="search-form" action="browse.php" role="search" method="GET">
                         <input type="hidden" name="type" value="poll">
                         <input name="q" class="search" type="text" placeholder="Поиск" aria-label="Найти опрос">
-                        <button class="search-button" type="submit" aria-label="Найти">⌕</button>
+                        <button class="search-button" type="submit" aria-label="Найти">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#b9c7d6"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="0.4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <circle cx="10.5" cy="10.5" r="6.2"
+          stroke="url(#g)"
+          stroke-width="1.6"
+          fill="none"
+          filter="url(#glow)"/>
+  <circle cx="8.2" cy="8.2" r="2.8"
+          fill="rgba(255,255,255,0.18)"/>
+  <path d="M15.2 15.2 L20 20"
+        stroke="url(#g)"
+        stroke-width="2"
+        stroke-linecap="round"/>
+</svg>
+                        </button>
                     </form>
                 </div>
                 <div class="nav__right">
