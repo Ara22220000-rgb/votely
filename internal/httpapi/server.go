@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"golang.org/x/crypto/bcrypt"
 
 	"votely/internal/store"
 )
@@ -79,8 +78,6 @@ func NewServer(cfg ServerConfig) *http.Server {
 	mux.HandleFunc("GET /api/v1/auth/me", api.authMe)
 	mux.HandleFunc("GET /api/v1/auth/telegram/config", api.telegramConfig)
 	mux.HandleFunc("POST /api/v1/auth/telegram", api.telegramAuth)
-	mux.HandleFunc("POST /api/v1/auth/register", api.emailRegister)
-	mux.HandleFunc("POST /api/v1/auth/login", api.emailLogin)
 	mux.HandleFunc("POST /api/v1/auth/logout", api.authLogout)
 	mux.HandleFunc("GET /api/v1/admin/me", api.adminMe)
 	mux.HandleFunc("GET /api/v1/admin/summary", api.adminOnly(api.adminSummary, false))
@@ -612,71 +609,6 @@ func (s *apiServer) telegramAuth(w http.ResponseWriter, r *http.Request) {
 		"username":   user.Username,
 		"first_name": user.FirstName,
 		"photo_url":  user.PhotoURL,
-	})
-}
-
-func (s *apiServer) emailRegister(w http.ResponseWriter, r *http.Request) {
-	var req emailAuthRequest
-	if err := decodeJSON(w, r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
-		return
-	}
-	name, email, password, err := validateEmailAuth(req, true)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
-		return
-	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать аккаунт.")
-		return
-	}
-	user, err := s.store.CreateEmailUser(r.Context(), name, email, string(hash))
-	if err != nil {
-		s.logger.Error("email register failed", "error", err)
-		writeError(w, http.StatusConflict, "email_exists", "Пользователь с такой почтой уже существует.")
-		return
-	}
-	s.createAuthSession(w, r, user)
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":         user.ID,
-		"username":   user.Username,
-		"first_name": user.FirstName,
-		"photo_url":  user.PhotoURL,
-	})
-}
-
-func (s *apiServer) emailLogin(w http.ResponseWriter, r *http.Request) {
-	var req emailAuthRequest
-	if err := decodeJSON(w, r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
-		return
-	}
-	_, email, password, err := validateEmailAuth(req, false)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
-		return
-	}
-	emailUser, err := s.store.EmailUser(r.Context(), email)
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Неверная почта или пароль.")
-		return
-	}
-	if err != nil {
-		s.logger.Error("email login lookup failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось выполнить вход.")
-		return
-	}
-	if bcrypt.CompareHashAndPassword([]byte(emailUser.PasswordHash), []byte(password)) != nil {
-		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Неверная почта или пароль.")
-		return
-	}
-	s.createAuthSession(w, r, emailUser.User)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":         emailUser.User.ID,
-		"username":   emailUser.User.Username,
-		"first_name": emailUser.User.FirstName,
-		"photo_url":  emailUser.User.PhotoURL,
 	})
 }
 

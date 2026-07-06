@@ -109,11 +109,6 @@ type (
 		PhotoURL  string    `json:"photo_url"`
 		AuthDate  time.Time `json:"auth_date"`
 	}
-
-	EmailUser struct {
-		User         TelegramUser
-		PasswordHash string
-	}
 )
 
 type Store struct {
@@ -939,55 +934,6 @@ func (s *Store) TelegramUser(ctx context.Context, id int64) (TelegramUser, error
 		id,
 	).Scan(&user.ID, &user.FirstName, &user.LastName, &user.Username, &user.PhotoURL, &user.AuthDate)
 	return user, err
-}
-
-func (s *Store) CreateEmailUser(ctx context.Context, name, email, passwordHash string) (TelegramUser, error) {
-	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return TelegramUser{}, err
-	}
-	defer rollback(ctx, tx)
-
-	var userID int64
-	if err := tx.QueryRow(ctx, `SELECT -nextval('email_user_id_seq')`).Scan(&userID); err != nil {
-		return TelegramUser{}, err
-	}
-	user := TelegramUser{
-		ID:        userID,
-		FirstName: strings.TrimSpace(name),
-		Username:  strings.TrimSpace(email),
-		AuthDate:  time.Now(),
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO telegram_users (id, first_name, username, auth_date, updated_at)
-		VALUES ($1, $2, $3, $4, now())`,
-		user.ID, user.FirstName, user.Username, user.AuthDate,
-	); err != nil {
-		return TelegramUser{}, err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO email_users (email, telegram_user_id, password_hash, updated_at)
-		VALUES ($1, $2, $3, now())`,
-		strings.ToLower(strings.TrimSpace(email)), user.ID, passwordHash,
-	); err != nil {
-		return TelegramUser{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return TelegramUser{}, err
-	}
-	return user, nil
-}
-
-func (s *Store) EmailUser(ctx context.Context, email string) (EmailUser, error) {
-	var item EmailUser
-	err := s.db.QueryRow(ctx, `
-		SELECT tu.id, tu.first_name, tu.last_name, tu.username, tu.photo_url, tu.auth_date, eu.password_hash
-		FROM email_users eu
-		JOIN telegram_users tu ON tu.id = eu.telegram_user_id
-		WHERE eu.email = $1`,
-		strings.ToLower(strings.TrimSpace(email)),
-	).Scan(&item.User.ID, &item.User.FirstName, &item.User.LastName, &item.User.Username, &item.User.PhotoURL, &item.User.AuthDate, &item.PasswordHash)
-	return item, err
 }
 
 func (s *Store) CreateSession(ctx context.Context, userID int64, tokenHash string, expiresAt time.Time) error {

@@ -2,13 +2,12 @@ package httpapi
 
 import (
 	"errors"
-	"net/mail"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
-
-	"votely/internal/store"
 )
 
 const (
@@ -17,9 +16,6 @@ const (
 	maxOptionLength      = 300
 	maxQuestionLength    = 500
 	maxShareLinkName     = 80
-	maxEmailLength       = 254
-	minPasswordLength    = 6
-	maxPasswordLength    = 128
 )
 
 type createPollRequest struct {
@@ -57,12 +53,6 @@ type submitQuizAnswerRequest struct {
 
 type createShareLinkRequest struct {
 	Name string `json:"name"`
-}
-
-type emailAuthRequest struct {
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
 }
 
 // telegramAuthPayload mirrors the JSON sent by the Telegram Login Widget.
@@ -252,36 +242,6 @@ func validateText(value, field string, maxLength int, required bool) (string, er
 		}
 	}
 	return trimmed, nil
-}
-
-func validateEmailAuth(req emailAuthRequest, requireName bool) (string, string, string, error) {
-	name := strings.TrimSpace(req.Name)
-	if requireName {
-		var err error
-		name, err = validateText(name, "Имя", maxTitleLength, true)
-		if err != nil {
-			return "", "", "", err
-		}
-	}
-	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if email == "" {
-		return "", "", "", errors.New("Укажите почту.")
-	}
-	if len(email) > maxEmailLength {
-		return "", "", "", errors.New("Почта слишком длинная.")
-	}
-	addr, err := mail.ParseAddress(email)
-	if err != nil || addr.Address != email {
-		return "", "", "", errors.New("Укажите корректную почту.")
-	}
-	password := req.Password
-	if len(password) < minPasswordLength {
-		return "", "", "", errors.New("Пароль должен быть не короче 6 символов.")
-	}
-	if len(password) > maxPasswordLength {
-		return "", "", "", errors.New("Пароль слишком длинный.")
-	}
-	return name, email, password, nil
 }
 
 func normalizeCountries(values []string) ([]string, error) {
