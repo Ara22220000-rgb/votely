@@ -962,7 +962,7 @@ a {
 }
 
 .primary-button {
-    min-width: 160px;
+    width: 100%;
     min-height: 52px;
     padding: 0 28px;
     border-radius: 12px;
