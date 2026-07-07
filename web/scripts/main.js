@@ -181,15 +181,24 @@ function initTelegramAuthUI() {
             console.log('[TelegramAuth] Fetching config...');
             const config = await apiJSON('/api/v1/auth/telegram/config');
             console.log('[TelegramAuth] Config response:', config);
-            if (!config.enabled || !config.bot_username) {
-                showToast('Telegram OAuth не настроен');
+            if (!config.enabled) {
+                showToast('Telegram авторизация не включена');
+                console.error('[TelegramAuth] enabled=false');
+                return;
+            }
+            if (!config.bot_username) {
+                showToast('Telegram бот не настроен');
+                console.error('[TelegramAuth] bot_username отсутствует');
                 return;
             }
             console.log('[TelegramAuth] Opening modal with bot_username:', config.bot_username);
             openTelegramAuthModal(config.bot_username);
         } catch (error) {
             console.error('[TelegramAuth] Error fetching config:', error);
-            showToast(error.message);
+            const msg = error.message === 'Failed to fetch' 
+                ? 'Сервер недоступен. Проверьте соединение.' 
+                : error.message;
+            showToast(msg);
         }
     });
 }
@@ -230,19 +239,14 @@ function renderAuthControls() {
             `;
         } else {
             root.innerHTML = `
-                <div class="dropdown dropdown--right" data-dropdown>
-                    <button class="dropdown__trigger auth-login-button" type="button" aria-haspopup="true" aria-expanded="false">
-                        ${lastAuthAvatar()}
-                        <span>Войти</span>
-                    </button>
-                    <div class="dropdown__menu auth-profile__menu" role="menu">
-                        <button class="dropdown__item" type="button" role="menuitem" data-auth-action="login">Через Telegram</button>
-                    </div>
-                </div>
+                <button class="auth-login-button" type="button" data-auth-action="login">
+                    ${lastAuthAvatar()}
+                    <span>Войти</span>
+                </button>
             `;
         }
     });
-    document.querySelectorAll('[data-auth-profile], .nav__right [data-dropdown]').forEach((dropdown) => {
+    document.querySelectorAll('[data-auth-profile]').forEach((dropdown) => {
         const trigger = dropdown.querySelector('.dropdown__trigger');
         trigger?.addEventListener('click', () => {
             const expanded = trigger.getAttribute('aria-expanded') === 'true';
@@ -385,13 +389,11 @@ function renderTelegramLoginFrame(modal, botUsername) {
     let resolved = false;
 
     function handleTelegramMessage(event) {
+        const isTelegramOrigin = event.origin === 'https://oauth.telegram.org' ||
+            event.origin === 'https://oauth.telegram.com' ||
+            event.origin === 'https://telegram.org';
+        if (!isTelegramOrigin) return;
         console.log('[TelegramAuth] Message received from origin:', event.origin, 'source:', event.source === iframe.contentWindow);
-        if (event.source !== iframe.contentWindow) return;
-        // Telegram embed widget can send from multiple origins
-        if (event.origin !== 'https://oauth.telegram.org' &&
-            event.origin !== 'https://oauth.telegram.com' &&
-            event.origin !== 'https://telegram.org' &&
-            event.origin !== '*') return;
         if (resolved) return;
 
         let data = {};
@@ -474,15 +476,7 @@ function renderTelegramLoginFrame(modal, botUsername) {
     }
 
     window.addEventListener('message', handleTelegramMessage);
-    // Also log ALL messages for debugging (CORS will still block actual data)
-    window.addEventListener('message', (e) => {
-        if (e.source !== iframe.contentWindow) {
-            // Silently ignore non-iframe messages
-            return;
-        }
-        // Already handled by handleTelegramMessage, just log for debugging
-        console.log('[TelegramAuth] ALL message event:', e.origin, e.data ? (typeof e.data === 'string' ? JSON.parse(e.data) : e.data) : '(no data)');
-    }, { once: true });
+
 
     // Timeout: if no auth_result after 60s, show error
     window.setTimeout(() => {

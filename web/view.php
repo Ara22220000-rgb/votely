@@ -88,12 +88,7 @@ if (isset($_COOKIE['votely_theme'])) {
                 </div>
                 <div class="nav__right">
                     <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Переключить тему">🌙</button>
-                    <div class="dropdown dropdown--right" data-dropdown>
-                        <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false" id="auth-trigger">Войти</button>
-                        <div class="dropdown__menu" role="menu">
-                            <button class="dropdown__item" type="button" role="menuitem" id="telegram-login" data-auth-action="login">Через Telegram</button>
-                        </div>
-                    </div>
+                    <button class="auth-login-button" type="button" data-auth-action="login" id="auth-trigger">Войти</button>
                 </div>
             </nav>
         </header>
