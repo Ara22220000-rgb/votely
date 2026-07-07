@@ -192,11 +192,12 @@ type PollDetail struct {
 }
 
 type QuizDetail struct {
-	ID          string       `json:"id"`
-	Title       string       `json:"title"`
-	Description string       `json:"description"`
-	Question    string       `json:"question"`
-	Answers     []AnswerItem `json:"answers"`
+	ID               string       `json:"id"`
+	Title            string       `json:"title"`
+	Description      string       `json:"description"`
+	Question         string       `json:"question"`
+	Answers          []AnswerItem `json:"answers"`
+	SelectedAnswerID string       `json:"selected_answer_id,omitempty"`
 }
 
 type OptionItem struct {
@@ -1087,7 +1088,7 @@ func (s *Store) SessionUserID(ctx context.Context, tokenHash string) (int64, err
 	return userID, nil
 }
 
-func (s *Store) GetQuiz(ctx context.Context, id string) (QuizDetail, error) {
+func (s *Store) GetQuiz(ctx context.Context, id string, userID int64) (QuizDetail, error) {
 	var quiz QuizDetail
 	var questionID string
 	if err := s.db.QueryRow(ctx, `
@@ -1110,6 +1111,16 @@ func (s *Store) GetQuiz(ctx context.Context, id string) (QuizDetail, error) {
 			return QuizDetail{}, err
 		}
 		quiz.Answers = append(quiz.Answers, answer)
+	}
+	if err := rows.Err(); err != nil {
+		return QuizDetail{}, err
+	}
+	if userID != 0 {
+		_ = s.db.QueryRow(ctx, `
+			SELECT answer_id::text
+			FROM quiz_attempts
+			WHERE quiz_id = $1 AND telegram_user_id = $2
+			LIMIT 1`, id, userID).Scan(&quiz.SelectedAnswerID)
 	}
 	return quiz, rows.Err()
 }

@@ -688,7 +688,8 @@ func (s *apiServer) getQuiz(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
 		return
 	}
-	quiz, err := s.store.GetQuiz(r.Context(), id)
+	userID := s.sessionUserID(r)
+	quiz, err := s.store.GetQuiz(r.Context(), id, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Викторина не найдена.")
 		return

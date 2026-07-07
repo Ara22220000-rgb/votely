@@ -1124,12 +1124,15 @@ function animateVoteBars(container) {
 }
 
 function renderQuizView(container, data) {
+    const selectedAnswerID = data.selected_answer_id || '';
+    const hasAnswered = !!selectedAnswerID;
+    
     container.innerHTML = `
         <div class="quiz-viewer">
             <div class="quiz-question-box"><h2>${escapeHtml(data.question)}</h2></div>
             <div class="answer-list"></div>
             <div class="vote-actions">
-                <button class="primary-button" type="button">Проверить</button>
+                <button class="primary-button" type="button" ${hasAnswered ? 'disabled' : ''}>${hasAnswered ? 'Ответ сохранён' : 'Проверить'}</button>
                 <p class="status form-status" role="status"></p>
             </div>
         </div>
@@ -1138,8 +1141,10 @@ function renderQuizView(container, data) {
     (data.answers || []).forEach((answer) => {
         const label = document.createElement('label');
         label.className = 'vote-option';
+        const isSelected = answer.id === selectedAnswerID;
+        label.classList.toggle('is-user-selected', isSelected);
         label.innerHTML = `
-            <input type="radio" name="ans" value="${escapeHtml(answer.id)}">
+            <input type="radio" name="ans" value="${escapeHtml(answer.id)}" ${isSelected ? 'checked' : ''} ${hasAnswered ? 'disabled' : ''}>
             <span class="vote-option__body">
                 <span class="vote-option__top">
                     <span class="vote-option__text">${escapeHtml(answer.text)}</span>
@@ -1150,6 +1155,17 @@ function renderQuizView(container, data) {
         `;
         list.append(label);
     });
+    
+    if (hasAnswered) {
+        // Показываем результат если пользователь уже ответил
+        renderQuizResult(container, data, {
+            answers: data.answers,
+            selected_answer_id: selectedAnswerID,
+            is_correct: data.answers.find(a => a.id === selectedAnswerID)?.is_correct || false
+        });
+        return;
+    }
+    
     const button = container.querySelector('.primary-button');
     button.addEventListener('click', async () => {
         const selected = container.querySelector('input:checked');
@@ -1181,22 +1197,32 @@ function renderQuizView(container, data) {
 }
 
 function renderQuizResult(container, data, result) {
-    container.innerHTML = `
-        <div class="quiz-viewer">
-            <div class="quiz-question-box"><h2>${escapeHtml(data.question)}</h2></div>
-            <div class="answer-list"></div>
-            <div class="vote-actions">
-                <p class="status form-status ${result.is_correct ? 'is-success' : 'is-error'}" role="status">${result.is_correct ? 'Правильно' : 'Ответ сохранен'}</p>
-            </div>
-        </div>
-    `;
     const list = container.querySelector('.answer-list');
+    const status = container.querySelector('.status');
+    const button = container.querySelector('.primary-button');
+    
+    // Обновляем статус
+    if (status) {
+        status.className = 'status form-status ' + (result.is_correct ? 'is-success' : 'is-error');
+        status.textContent = result.is_correct ? 'Правильно' : 'Ответ сохранён';
+        status.setAttribute('role', 'status');
+    }
+    
+    // Обновляем кнопку
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Ответ сохранён';
+    }
+    
+    // Обновляем варианты ответов
+    list.replaceChildren();
     (result.answers || []).forEach((answer) => {
         const label = document.createElement('div');
         const isSelected = answer.id === result.selected_answer_id;
         label.className = 'vote-option is-result';
         label.classList.toggle('is-correct', !!answer.is_correct);
         label.classList.toggle('is-error', isSelected && !answer.is_correct);
+        label.classList.toggle('is-user-selected', isSelected);
         label.innerHTML = `
             <span class="vote-option__marker"></span>
             <span class="vote-option__body">

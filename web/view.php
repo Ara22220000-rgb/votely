@@ -1,5 +1,5 @@
 <?php
-// Обработка смены темы через URL параметр
+// РћР±СЂР°Р±РѕС‚РєР° РїРµСЂРµРєР»СЋС‡РµРЅРёСЏ С‚РµРјС‹ С‡РµСЂРµР· URL РїР°СЂР°РјРµС‚СЂ
 if (isset($_GET['theme']) && $_GET['theme'] === 'toggle') {
     $currentTheme = $_COOKIE['votely_theme'] ?? '';
     $newTheme = ($currentTheme === 'light') ? 'dark' : 'light';
@@ -17,44 +17,44 @@ if (isset($_COOKIE['votely_theme'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Просмотр · Votely</title>
+    <title>РџСЂРѕСЃРјРѕС‚СЂ | Votely</title>
     <link rel="icon" href="votely.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles/main.css?v=3">
 </head>
 <body data-content-type="poll"<?php echo $themeClass; ?>>
     <div class="page">
         <header class="site-header">
-            <nav class="nav" aria-label="Основная навигация">
-                <a class="brand" href="index.php" aria-label="Votely, главная">
+            <nav class="nav" aria-label="РћСЃРЅРѕРІРЅР°СЏ РЅР°РІРёРіР°С†РёСЏ">
+                <a class="brand" href="index.php" aria-label="Votely, РіР»Р°РІРЅР°СЏ">
                     <img class="brand__logo" src="votely.svg" alt="">
                     <span class="brand__name">Votely</span>
                 </a>
                 <div class="nav__middle">
-                    <a class="nav-link" href="index.php">Главная</a>
+                    <a class="nav-link" href="index.php">Р“Р»Р°РІРЅР°СЏ</a>
                     <div class="dropdown" data-dropdown>
-                        <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">Создать</button>
+                        <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">РЎРѕР·РґР°С‚СЊ</button>
                         <div class="dropdown__menu" role="menu">
-                            <a class="dropdown__item" href="create.php?type=poll" role="menuitem">Создать опрос</a>
-                            <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
+                            <a class="dropdown__item" href="create.php?type=poll" role="menuitem">РЎРѕР·РґР°С‚СЊ РѕРїСЂРѕСЃ</a>
+                            <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">РЎРѕР·РґР°С‚СЊ РІРёРєС‚РѕСЂРёРЅСѓ</a>
                         </div>
                     </div>
-                    <a class="nav-link is-active" href="browse.php?type=poll">Опросы</a>
-                    <a class="nav-link" href="browse.php?type=quiz">Викторины</a>
+                    <a class="nav-link is-active" href="browse.php?type=poll">РћРїСЂРѕСЃС‹</a>
+                    <a class="nav-link" href="browse.php?type=quiz">Р’РёРєС‚РѕСЂРёРЅС‹</a>
                 </div>
                 <div class="searchdiv">
                     <form class="search-form" action="browse.php" role="search">
-                        <input name="q" class="search" type="text" placeholder="Поиск" aria-label="Найти опрос">
-                        <button class="search-button" type="submit" aria-label="Найти">
+                        <input name="q" class="search" type="text" placeholder="РџРѕРёСЃРє" aria-label="РќР°Р№С‚Рё РѕРїСЂРѕСЃ">
+                        <button class="search-button" type="submit" aria-label="РќР°Р№С‚Рё">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 
   <defs>
-    <!-- мягкий холодный градиент -->
+    <!-- РјСЏРіРєРёР№ С…РѕР»РѕРґРЅС‹Р№ РіСЂР°РґРёРµРЅС‚ -->
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#ffffff"/>
       <stop offset="100%" stop-color="#b9c7d6"/>
     </linearGradient>
 
-    <!-- лёгкое свечение -->
+    <!-- Р»С‘РіРєРѕРµ СЃРІРµС‡РµРЅРёРµ -->
     <filter id="glow">
       <feGaussianBlur stdDeviation="0.4" result="blur"/>
       <feMerge>
@@ -65,18 +65,18 @@ if (isset($_COOKIE['votely_theme'])) {
 
   </defs>
 
-  <!-- круг (линза) -->
+  <!-- РєСЂСѓРі (Р»РёРЅР·Р°) -->
   <circle cx="10.5" cy="10.5" r="6.2"
           stroke="url(#g)"
           stroke-width="1.6"
           fill="none"
           filter="url(#glow)"/>
 
-  <!-- внутренний блик -->
+  <!-- РІРЅСѓС‚СЂРµРЅРЅРёР№ Р±Р»РёРє -->
   <circle cx="8.2" cy="8.2" r="2.8"
           fill="rgba(255,255,255,0.18)"/>
 
-  <!-- ручка -->
+  <!-- СЂСѓС‡РєР° -->
   <path d="M15.2 15.2 L20 20"
         stroke="url(#g)"
         stroke-width="2"
@@ -87,7 +87,7 @@ if (isset($_COOKIE['votely_theme'])) {
                     </form>
                 </div>
                 <div class="nav__right">
-                    <button class="auth-login-button" type="button" data-auth-action="login" id="auth-trigger">Войти</button>
+                    <button class="auth-login-button" type="button" data-auth-action="login" id="auth-trigger">Р’РѕР№С‚Рё</button>
                 </div>
             </nav>
         </header>
@@ -100,32 +100,32 @@ if (isset($_COOKIE['votely_theme'])) {
             <div class="footer__inner">
                 <div class="footer__top">
                     <div class="footer__brand">
-                        <a class="footer__logo" href="index.php" aria-label="Votely, главная">
+                        <a class="footer__logo" href="index.php" aria-label="Votely, РіР»Р°РІРЅР°СЏ">
                             <img class="footer__logo-img" src="votely.svg" alt="">
                             <span>Votely</span>
                         </a>
-                        <p class="footer__description">Быстрые онлайн-опросы и викторины без лишней сложности.</p>
+                        <p class="footer__description">Р‘С‹СЃС‚СЂС‹Рµ РѕРЅР»Р°Р№РЅ-РѕРїСЂРѕСЃС‹ Рё РІРёРєС‚РѕСЂРёРЅС‹ Р±РµР· Р»РёС€РЅРµР№ СЃР»РѕР¶РЅРѕСЃС‚Рё.</p>
                     </div>
 
-                    <nav class="footer__links" aria-label="Ссылки в подвале">
-                        <a class="footer__link" href="index.php">Главная</a>
-                        <a class="footer__link" href="create.php?type=poll">Создать опрос</a>
-                        <a class="footer__link" href="browse.php?type=poll">Опросы</a>
-                        <a class="footer__link" href="create.php?type=quiz">Создать викторину</a>
-                        <a class="footer__link" href="browse.php?type=quiz">Викторины</a>
-                        <a class="footer__link" href="wiki.php">Вики</a>
+                    <nav class="footer__links" aria-label="РЎСЃС‹Р»РєРё РІ РїРѕРґРІР°Р»Рµ">
+                        <a class="footer__link" href="index.php">Р“Р»Р°РІРЅР°СЏ</a>
+                        <a class="footer__link" href="create.php?type=poll">РЎРѕР·РґР°С‚СЊ РѕРїСЂРѕСЃ</a>
+                        <a class="footer__link" href="browse.php?type=poll">РћРїСЂРѕСЃС‹</a>
+                        <a class="footer__link" href="create.php?type=quiz">РЎРѕР·РґР°С‚СЊ РІРёРєС‚РѕСЂРёРЅСѓ</a>
+                        <a class="footer__link" href="browse.php?type=quiz">Р’РёРєС‚РѕСЂРёРЅС‹</a>
+                        <a class="footer__link" href="wiki.php">Р’РёРєРё</a>
                     </nav>
 
                     <div class="footer__contact">
                         <a class="footer__email" href="mailto:help@votely.local">help@votely.local</a>
-                    <div class="footer__social-row" aria-label="Социальные сети">
+                    <div class="footer__social-row" aria-label="РЎРѕС†РёР°Р»СЊРЅС‹Рµ СЃРµС‚Рё">
                             <a class="footer__social" href="#" aria-label="Telegram">TG</a>
                         </div>
                     </div>
                 </div>
 
-                <p class="footer__bottom">© 2026 Votely</p>
-                <p class="footer__bottom_right">Версия: 26.3</p>
+                <p class="footer__bottom">В© 2026 Votely</p>
+                <p class="footer__bottom_right">Р’РµСЂСЃРёСЏ: 26.3</p>
             </div>
         </footer>
     </div>
