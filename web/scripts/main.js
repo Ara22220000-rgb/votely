@@ -654,6 +654,7 @@ function apiCollection(type) {
 async function initBrowsePage(root) {
     const params = new URLSearchParams(window.location.search);
     const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
+    const searchQuery = params.get('q') || '';
     document.body.dataset.contentType = type;
     const list = root.querySelector('[data-list]');
     const title = root.querySelector('[data-browse-title]');
@@ -661,8 +662,15 @@ async function initBrowsePage(root) {
     document.querySelectorAll('[data-type-link]').forEach((link) => {
         link.classList.toggle('is-active', link.dataset.typeLink === type);
     });
+    
+    // Восстанавливаем поисковый запрос в поле поиска
+    const searchInput = document.querySelector('.search-form .search');
+    if (searchInput && searchQuery) {
+        searchInput.value = searchQuery;
+    }
+    
     try {
-        const query = params.get('q') ? '?q=' + encodeURIComponent(params.get('q')) : '';
+        const query = searchQuery ? '?q=' + encodeURIComponent(searchQuery) : '';
         const data = await apiJSON('/api/v1/' + apiCollection(type) + query);
         renderCards(list, data.items || [], type);
     } catch (e) {
@@ -694,8 +702,12 @@ async function initMyPollsPage(root) {
     const title = root.querySelector('[data-my-polls-title]');
     if (!list) return;
     
+    // Ждём авторизацию перед загрузкой
+    await authReady;
+    
     const params = new URLSearchParams(window.location.search);
     const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
+    const searchQuery = params.get('q') || '';
     document.body.dataset.contentType = type;
     
     if (title) title.textContent = type === 'quiz' ? 'Мои викторины' : 'Мои опросы';
@@ -704,13 +716,20 @@ async function initMyPollsPage(root) {
         link.classList.toggle('is-active', link.dataset.typeLink === type);
     });
     
+    // Восстанавливаем поисковый запрос в поле поиска
+    const searchInput = document.querySelector('.search-form .search');
+    if (searchInput && searchQuery) {
+        searchInput.value = searchQuery;
+    }
+    
     try {
         const state = await authReady;
         if (!state.authenticated) {
             renderMessage(list, 'Войдите в аккаунт, чтобы увидеть свои опросы.', false);
             return;
         }
-        const data = await apiJSON('/api/v1/me/' + (type === 'quiz' ? 'quizzes' : 'polls'));
+        const query = searchQuery ? '?q=' + encodeURIComponent(searchQuery) : '';
+        const data = await apiJSON('/api/v1/me/' + (type === 'quiz' ? 'quizzes' : 'polls') + query);
         renderMyPolls(list, data.items || [], type);
     } catch (e) {
         renderMessage(list, e.message, true);
@@ -1614,9 +1633,9 @@ async function initGetPage() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     initToasts();
-    checkAuthStatus();
+    await checkAuthStatus();
     initAuthGuards();
 
     // Инициализация видео фона на главной
@@ -1641,6 +1660,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const browseRoot = document.querySelector('[data-browse-root]');
     if (browseRoot) initBrowsePage(browseRoot);
+
+    const myPollsRoot = document.querySelector('[data-my-polls-root]');
+    if (myPollsRoot) initMyPollsPage(myPollsRoot);
 
     const detailRoot = document.querySelector('[data-detail-root]');
     if (detailRoot) initDetailPage(detailRoot);

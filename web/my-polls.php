@@ -50,8 +50,8 @@ if (isset($_COOKIE['votely_theme'])) {
                 </div>
                 <div class="searchdiv">
                     <form class="search-form" action="browse.php" role="search" method="GET">
-                        <input type="hidden" name="type" value="poll">
-                        <input name="q" class="search" type="text" placeholder="Поиск" aria-label="Найти опрос">
+                        <input type="hidden" name="type" value="<?php echo htmlspecialchars($_GET['type'] ?? 'poll', ENT_QUOTES, 'UTF-8'); ?>">
+                        <input name="q" class="search" type="text" placeholder="Поиск" aria-label="Найти опрос" value="<?php echo htmlspecialchars($_GET['q'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
                         <button class="search-button" type="submit" aria-label="Найти">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -96,8 +96,12 @@ if (isset($_COOKIE['votely_theme'])) {
                         <h1 class="creator__title" data-my-polls-title>Мои опросы</h1>
                     </div>
                     <div class="creator__switch" aria-label="Тип контента">
-                        <a class="creator__switch-link is-active" href="my-polls.php?type=poll" data-type-link="poll">Опросы</a>
-                        <a class="creator__switch-link" href="my-polls.php?type=quiz" data-type-link="quiz">Викторины</a>
+                        <a class="creator__switch-link is-active" href="my-polls.php?type=poll&q=<?php echo htmlspecialchars($_GET['q'] ?? '', ENT_QUOTES, 'UTF-8'); ?>" data-type-link="poll">
+                            📊 Опросы
+                        </a>
+                        <a class="creator__switch-link" href="my-polls.php?type=quiz&q=<?php echo htmlspecialchars($_GET['q'] ?? '', ENT_QUOTES, 'UTF-8'); ?>" data-type-link="quiz">
+                            🧠 Викторины
+                        </a>
                     </div>
                 </div>
                 <div class="cards-grid" data-list></div>

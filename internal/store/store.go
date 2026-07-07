@@ -458,8 +458,24 @@ func escapeLike(value string) string {
 	return replacer.Replace(value)
 }
 
-func (s *Store) ListQuizzes(ctx context.Context) ([]ListItem, error) {
-	rows, err := s.db.Query(ctx, `SELECT id::text, title, description, created_at::text FROM quizzes ORDER BY created_at DESC LIMIT 100`)
+func (s *Store) ListQuizzes(ctx context.Context, query string) ([]ListItem, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		rows, err := s.db.Query(ctx, `SELECT id::text, title, description, created_at::text FROM quizzes ORDER BY created_at DESC LIMIT 100`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		return scanList(rows)
+	}
+
+	pattern := "%" + escapeLike(query) + "%"
+	rows, err := s.db.Query(ctx, `
+		SELECT id::text, title, description, created_at::text
+		FROM quizzes
+		WHERE title ILIKE $1 ESCAPE '\' OR description ILIKE $1 ESCAPE '\'
+		ORDER BY created_at DESC
+		LIMIT 100`, pattern)
 	if err != nil {
 		return nil, err
 	}
@@ -467,15 +483,31 @@ func (s *Store) ListQuizzes(ctx context.Context) ([]ListItem, error) {
 	return scanList(rows)
 }
 
-func (s *Store) ListUserPolls(ctx context.Context, userID int64) ([]ListItem, error) {
-	rows, err := s.db.Query(ctx, `
-		SELECT p.id::text, p.title, p.description, p.created_at::text, count(pv.id)::int
-		FROM polls p
-		LEFT JOIN poll_votes pv ON pv.poll_id = p.id
-		WHERE p.owner_user_id = $1 OR p.owner_telegram_id = $1
-		GROUP BY p.id, p.title, p.description, p.created_at
-		ORDER BY p.created_at DESC
-		LIMIT 100`, userID)
+func (s *Store) ListUserPolls(ctx context.Context, userID int64, query string) ([]ListItem, error) {
+	query = strings.TrimSpace(query)
+	var rows pgx.Rows
+	var err error
+	if query == "" {
+		rows, err = s.db.Query(ctx, `
+			SELECT p.id::text, p.title, p.description, p.created_at::text, count(pv.id)::int
+			FROM polls p
+			LEFT JOIN poll_votes pv ON pv.poll_id = p.id
+			WHERE p.owner_user_id = $1 OR p.owner_telegram_id = $1
+			GROUP BY p.id, p.title, p.description, p.created_at
+			ORDER BY p.created_at DESC
+			LIMIT 100`, userID)
+	} else {
+		pattern := "%" + escapeLike(query) + "%"
+		rows, err = s.db.Query(ctx, `
+			SELECT p.id::text, p.title, p.description, p.created_at::text, count(pv.id)::int
+			FROM polls p
+			LEFT JOIN poll_votes pv ON pv.poll_id = p.id
+			WHERE (p.owner_user_id = $1 OR p.owner_telegram_id = $1)
+				AND (p.title ILIKE $2 ESCAPE '\' OR p.description ILIKE $2 ESCAPE '\')
+			GROUP BY p.id, p.title, p.description, p.created_at
+			ORDER BY p.created_at DESC
+			LIMIT 100`, userID, pattern)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -483,17 +515,35 @@ func (s *Store) ListUserPolls(ctx context.Context, userID int64) ([]ListItem, er
 	return scanList(rows)
 }
 
-func (s *Store) ListUserQuizzes(ctx context.Context, userID int64) ([]ListItem, error) {
-	rows, err := s.db.Query(ctx, `
-		SELECT q.id::text, q.title, q.description, q.created_at::text, count(qa.id)::int
-		FROM quizzes q
-		JOIN quiz_questions qq ON qq.quiz_id = q.id
-		JOIN quiz_answers qa ON qa.question_id = qq.id
-		LEFT JOIN quiz_attempts qat ON qat.answer_id = qa.id
-		WHERE q.owner_user_id = $1 OR q.owner_telegram_id = $1
-		GROUP BY q.id, q.title, q.description, q.created_at
-		ORDER BY q.created_at DESC
-		LIMIT 100`, userID)
+func (s *Store) ListUserQuizzes(ctx context.Context, userID int64, query string) ([]ListItem, error) {
+	query = strings.TrimSpace(query)
+	var rows pgx.Rows
+	var err error
+	if query == "" {
+		rows, err = s.db.Query(ctx, `
+			SELECT q.id::text, q.title, q.description, q.created_at::text, count(qa.id)::int
+			FROM quizzes q
+			JOIN quiz_questions qq ON qq.quiz_id = q.id
+			JOIN quiz_answers qa ON qa.question_id = qq.id
+			LEFT JOIN quiz_attempts qat ON qat.answer_id = qa.id
+			WHERE q.owner_user_id = $1 OR q.owner_telegram_id = $1
+			GROUP BY q.id, q.title, q.description, q.created_at
+			ORDER BY q.created_at DESC
+			LIMIT 100`, userID)
+	} else {
+		pattern := "%" + escapeLike(query) + "%"
+		rows, err = s.db.Query(ctx, `
+			SELECT q.id::text, q.title, q.description, q.created_at::text, count(qa.id)::int
+			FROM quizzes q
+			JOIN quiz_questions qq ON qq.quiz_id = q.id
+			JOIN quiz_answers qa ON qa.question_id = qq.id
+			LEFT JOIN quiz_attempts qat ON qat.answer_id = qa.id
+			WHERE (q.owner_user_id = $1 OR q.owner_telegram_id = $1)
+				AND (q.title ILIKE $2 ESCAPE '\' OR q.description ILIKE $2 ESCAPE '\')
+			GROUP BY q.id, q.title, q.description, q.created_at
+			ORDER BY q.created_at DESC
+			LIMIT 100`, userID, pattern)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -109,8 +109,12 @@ if (isset($_COOKIE['votely_theme'])) {
                         <h1 class="creator__title" id="creator-title">Создать опрос</h1>
                     </div>
                     <div class="creator__switch" aria-label="Тип формы">
-                        <a class="creator__switch-link" href="create.php?type=poll" data-type-link="poll">Опрос</a>
-                        <a class="creator__switch-link" href="create.php?type=quiz" data-type-link="quiz">Викторина</a>
+                        <a class="creator__switch-link" href="create.php?type=poll" data-type-link="poll">
+                            📊 Опрос
+                        </a>
+                        <a class="creator__switch-link" href="create.php?type=quiz" data-type-link="quiz">
+                            🧠 Викторина
+                        </a>
                     </div>
                 </div>
 

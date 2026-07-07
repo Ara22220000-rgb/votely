@@ -229,7 +229,12 @@ func (s *apiServer) listMyPolls(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите через Telegram, чтобы открыть свои опросы.")
 		return
 	}
-	items, err := s.store.ListUserPolls(r.Context(), userID)
+	query, err := searchQuery(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	items, err := s.store.ListUserPolls(r.Context(), userID, query)
 	if err != nil {
 		s.logger.Error("list user polls failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить ваши опросы.")
@@ -244,7 +249,12 @@ func (s *apiServer) listMyQuizzes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите через Telegram, чтобы открыть свои викторины.")
 		return
 	}
-	items, err := s.store.ListUserQuizzes(r.Context(), userID)
+	query, err := searchQuery(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	items, err := s.store.ListUserQuizzes(r.Context(), userID, query)
 	if err != nil {
 		s.logger.Error("list user quizzes failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить ваши викторины.")
@@ -510,7 +520,12 @@ func (s *apiServer) trafficEvent(r *http.Request, eventType, pollID, optionID st
 }
 
 func (s *apiServer) listQuizzes(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListQuizzes(r.Context())
+	query, err := searchQuery(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	items, err := s.store.ListQuizzes(r.Context(), query)
 	if err != nil {
 		s.logger.Error("list quizzes failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить викторины.")

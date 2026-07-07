@@ -21,7 +21,7 @@ if (isset($_COOKIE['votely_theme'])) {
     <link rel="icon" href="votely.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles/main.css?v=3">
 </head>
-<body data-content-type="home"<?php echo $themeClass; ?>>
+<body data-content-type="premium"<?php echo $themeClass; ?>>
     <div class="page">
         <div class="hero-bg"></div>
         <div class="hero-video-container">
@@ -104,24 +104,21 @@ if (isset($_COOKIE['votely_theme'])) {
             </nav>
         </header>
 
-        <main class="premium-page">
+            <section class="premium-body">
+            <main class="premium-page">
             <section class="premium-hero">
                 <div class="premium-hero__content">
                     <h1 class="premium-hero__title">Votely Premium</h1>
                     <p class="premium-hero__subtitle">Расширенные возможности для ваших опросов</p>
                 </div>
             </section>
-
-            <div class="premium-divider"></div>
-
-            <section class="premium-features">
-                <div class="premium-features__inner">
+                <div class="premium-features">
                     <h2 class="premium-section__title">Преимущества Premium</h2>
                     <div class="premium-features__grid">
                         <article class="premium-feature-card">
                             <div class="premium-feature-card__icon">📊</div>
-                            <h3 class="premium-feature-card__title">Расширенная аналитика</h3>
-                            <p class="premium-feature-card__desc">Детальная статистика по всем опросам: география, устройства, браузеры, источники трафика.</p>
+                            <h3 class="premium-feature-card__title">Экспорт данных</h3>
+                            <p class="premium-feature-card__desc">Возможность экспортировать данные статистики прямо с сайта в формате таблицы Exel.</p>
                         </article>
                         <article class="premium-feature-card">
                             <div class="premium-feature-card__icon">🎨</div>
@@ -135,12 +132,8 @@ if (isset($_COOKIE['votely_theme'])) {
                         </article>
                     </div>
                 </div>
-            </section>
 
-            <div class="premium-divider"></div>
-
-            <section class="premium-pricing">
-                <div class="premium-pricing__inner">
+                <div class="premium-pricing">
                     <h2 class="premium-section__title">Тарифы</h2>
                     <div class="premium-pricing__grid">
                         <article class="pricing-card">
@@ -170,12 +163,8 @@ if (isset($_COOKIE['votely_theme'])) {
                         </article>
                     </div>
                 </div>
-            </section>
 
-            <div class="premium-divider"></div>
-
-            <section class="premium-faq">
-                <div class="premium-faq__inner">
+                <div class="premium-faq">
                     <h2 class="premium-section__title">Частые вопросы</h2>
                     <div class="premium-faq__list">
                         <details class="faq-item">

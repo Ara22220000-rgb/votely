@@ -18,6 +18,7 @@ if (isset($_COOKIE['votely_theme'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Просмотр · Votely</title>
+    <link rel="icon" href="votely.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles/main.css?v=3">
 </head>
 <body data-content-type="poll"<?php echo $themeClass; ?>>
@@ -50,8 +51,8 @@ if (isset($_COOKIE['votely_theme'])) {
                 </div>
                 <div class="searchdiv">
                     <form class="search-form" action="browse.php" role="search" method="GET">
-                        <input type="hidden" name="type" value="poll">
-                        <input name="q" class="search" type="text" placeholder="Поиск" aria-label="Найти опрос" value="">
+                        <input type="hidden" name="type" value="<?php echo htmlspecialchars($_GET['type'] ?? 'poll', ENT_QUOTES, 'UTF-8'); ?>">
+                        <input name="q" class="search" type="text" placeholder="Поиск" aria-label="Найти опрос" value="<?php echo htmlspecialchars($_GET['q'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
                         <button class="search-button" type="submit" aria-label="Найти">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 
@@ -108,8 +109,12 @@ if (isset($_COOKIE['votely_theme'])) {
                         <h1 class="creator__title" data-browse-title>Опросы</h1>
                     </div>
                     <div class="creator__switch" aria-label="Тип списка">
-                        <a class="creator__switch-link" href="browse.php?type=poll" data-type-link="poll">Опросы</a>
-                        <a class="creator__switch-link" href="browse.php?type=quiz" data-type-link="quiz">Викторины</a>
+                        <a class="creator__switch-link" href="browse.php?type=poll&q=<?php echo htmlspecialchars($_GET['q'] ?? '', ENT_QUOTES, 'UTF-8'); ?>" data-type-link="poll">
+                            📊 Опросы
+                        </a>
+                        <a class="creator__switch-link" href="browse.php?type=quiz&q=<?php echo htmlspecialchars($_GET['q'] ?? '', ENT_QUOTES, 'UTF-8'); ?>" data-type-link="quiz">
+                            🧠 Викторины
+                        </a>
                     </div>
                 </div>
                 <div class="cards-grid" data-list></div>
