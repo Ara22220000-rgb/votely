@@ -211,7 +211,7 @@ function initLogoutUI() {
         if (button.dataset.logoutBound === '1') return;
         button.dataset.logoutBound = '1';
         button.addEventListener('click', async () => {
-            await apiJSON('/api/v1/auth/logout', { method: 'POST' });
+            await apiJSON('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
             persistLastAuthUser(authState.user);
             authState = { authenticated: false, user: null, isAdmin: false };
             authReady = Promise.resolve(authState);
@@ -219,6 +219,13 @@ function initLogoutUI() {
             showToast('Вы вышли', 'success');
         });
     });
+}
+
+function frameCoords() {
+    const iframe = document.querySelector('iframe[id^="telegram-login-"]');
+    if (!iframe) return { x: 0, y: 0 };
+    const rect = iframe.getBoundingClientRect();
+    return { x: rect.left, y: rect.top };
 }
 
 function renderAuthControls() {
