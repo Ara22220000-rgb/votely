@@ -482,6 +482,24 @@ func (s *Store) ListUserPolls(ctx context.Context, userID int64) ([]ListItem, er
 	return scanList(rows)
 }
 
+func (s *Store) ListUserQuizzes(ctx context.Context, userID int64) ([]ListItem, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT q.id::text, q.title, q.description, q.created_at::text, count(qa.id)::int
+		FROM quizzes q
+		JOIN quiz_questions qq ON qq.quiz_id = q.id
+		JOIN quiz_answers qa ON qa.question_id = qq.id
+		LEFT JOIN quiz_attempts qat ON qat.answer_id = qa.id
+		WHERE q.owner_user_id = $1 OR q.owner_telegram_id = $1
+		GROUP BY q.id, q.title, q.description, q.created_at
+		ORDER BY q.created_at DESC
+		LIMIT 100`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanList(rows)
+}
+
 func (s *Store) GetPoll(ctx context.Context, id string, userID int64, ownerKeyHash string, isAdmin bool) (PollDetail, error) {
 	var poll PollDetail
 	var endsAt sql.NullString

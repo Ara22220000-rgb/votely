@@ -19,9 +19,9 @@ if (isset($_COOKIE['votely_theme'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Вики · Votely</title>
     <link rel="icon" href="votely.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles/main.css?v=2">
+    <link rel="stylesheet" href="styles/main.css?v=3">
 </head>
-<body data-content-type="wiki">
+<body data-content-type="wiki"<?php echo $themeClass; ?>>
     <div class="page">
         <header class="site-header">
             <nav class="nav" aria-label="Основная навигация">
@@ -230,7 +230,6 @@ if (isset($_COOKIE['votely_theme'])) {
                     <div class="footer__contact">
                         <a class="footer__email" href="mailto:help@votely.local">help@votely.local</a>
                     <div class="footer__social-row" aria-label="Социальные сети">
-                        <a class="footer__link theme-toggle" href="?theme=toggle" aria-label="Переключить тему">🌙</a>
                             <a class="footer__social" href="https://t.me/votely_net" aria-label="Telegram">TG</a>
                         </div>
                     </div>

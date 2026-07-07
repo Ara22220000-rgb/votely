@@ -19,9 +19,9 @@ if (isset($_COOKIE['votely_theme'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Мои опросы · Votely</title>
     <link rel="icon" href="votely.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles/main.css?v=2">
+    <link rel="stylesheet" href="styles/main.css?v=3">
 </head>
-<body>
+<body data-content-type="poll"<?php echo $themeClass; ?>>
     <div class="page">
         <header class="site-header">
             <nav class="nav" aria-label="Основная навигация">
@@ -86,9 +86,12 @@ if (isset($_COOKIE['votely_theme'])) {
                 <div class="creator__header">
                     <div>
                         <p class="creator__eyebrow">Профиль</p>
-                        <h1 class="creator__title">Мои опросы</h1>
+                        <h1 class="creator__title" data-my-polls-title>Мои опросы</h1>
                     </div>
-                    <a class="creator__switch-link creator__switch-link--solo" href="create.php?type=poll">Создать опрос</a>
+                    <div class="creator__switch" aria-label="Тип контента">
+                        <a class="creator__switch-link is-active" href="my-polls.php?type=poll" data-type-link="poll">Опросы</a>
+                        <a class="creator__switch-link" href="my-polls.php?type=quiz" data-type-link="quiz">Викторины</a>
+                    </div>
                 </div>
                 <div class="cards-grid" data-list></div>
             </section>
@@ -118,7 +121,6 @@ if (isset($_COOKIE['votely_theme'])) {
                     <div class="footer__contact">
                         <a class="footer__email" href="mailto:help@votely.local">help@votely.local</a>
                     <div class="footer__social-row" aria-label="Социальные сети">
-                        <a class="footer__link theme-toggle" href="?theme=toggle" aria-label="Переключить тему">🌙</a>
                             <a class="footer__social" href="https://t.me/votely_net" aria-label="Telegram">TG</a>
                         </div>
                     </div>

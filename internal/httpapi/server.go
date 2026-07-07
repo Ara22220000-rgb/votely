@@ -61,6 +61,7 @@ func NewServer(cfg ServerConfig) *http.Server {
 	mux.HandleFunc("GET /healthz", api.health)
 	mux.HandleFunc("GET /api/v1/polls", api.listPolls)
 	mux.HandleFunc("GET /api/v1/me/polls", api.listMyPolls)
+	mux.HandleFunc("GET /api/v1/me/quizzes", api.listMyQuizzes)
 	mux.HandleFunc("POST /api/v1/polls", api.createPoll)
 	mux.HandleFunc("GET /api/v1/polls/{id}", api.getPoll)
 	mux.HandleFunc("POST /api/v1/polls/{id}/visits", api.recordPollVisit)
@@ -232,6 +233,21 @@ func (s *apiServer) listMyPolls(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("list user polls failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить ваши опросы.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *apiServer) listMyQuizzes(w http.ResponseWriter, r *http.Request) {
+	userID := s.sessionUserID(r)
+	if userID == 0 {
+		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите через Telegram, чтобы открыть свои викторины.")
+		return
+	}
+	items, err := s.store.ListUserQuizzes(r.Context(), userID)
+	if err != nil {
+		s.logger.Error("list user quizzes failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить ваши викторины.")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})

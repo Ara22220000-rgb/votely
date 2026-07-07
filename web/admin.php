@@ -64,9 +64,9 @@ if (isset($_COOKIE['votely_theme'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Админ-панель · Votely</title>
     <link rel="icon" href="votely.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles/main.css?v=2">
+    <link rel="stylesheet" href="styles/main.css?v=3">
 </head>
-<body data-content-type="home" class="admin-page">
+<body data-content-type="home" class="admin-page"<?php echo $themeClass; ?>>
     <div class="page">
         <header class="site-header">
             <nav class="nav" aria-label="Основная навигация">
@@ -79,7 +79,6 @@ if (isset($_COOKIE['votely_theme'])) {
                     <span class="nav-link admin-accent-text">Панель управления</span>
                 </div>
                 <div class="nav__right">
-                    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Переключить тему">🌙</button>
                     <button class="nav-link" id="admin-logout">Выйти</button>
                 </div>
             </nav>
@@ -151,7 +150,6 @@ if (isset($_COOKIE['votely_theme'])) {
                     <div class="footer__contact">
                         <a class="footer__email" href="mailto:help@votely.local">help@votely.local</a>
                     <div class="footer__social-row" aria-label="Социальные сети">
-                        <a class="footer__link theme-toggle" href="?theme=toggle" aria-label="Переключить тему">🌙</a>
                             <a class="footer__social" href="https://t.me/votely_net" aria-label="Telegram">TG</a>
                         </div>
                     </div>

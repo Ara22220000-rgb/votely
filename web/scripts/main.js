@@ -223,9 +223,6 @@ function initLogoutUI() {
 
 function renderAuthControls() {
     document.querySelectorAll('.nav__right').forEach((root) => {
-        // Сохраняем кнопку темы перед перезаписью
-        const themeToggle = root.querySelector('#theme-toggle');
-        
         if (authState.authenticated) {
             root.innerHTML = `
                 <div class="auth-profile dropdown dropdown--right is-auth" data-auth-profile>
@@ -235,7 +232,8 @@ function renderAuthControls() {
                     </button>
                     <div class="dropdown__menu auth-profile__menu" role="menu">
                         ${authState.isAdmin ? '<a class="dropdown__item" href="admin.php" role="menuitem">Админ панель</a>' : ''}
-                        <a class="dropdown__item" href="my-polls.php" role="menuitem">Мои опросы</a>
+                        <a class="dropdown__item" href="my-polls.php?type=poll" role="menuitem">Мои опросы</a>
+                        <a class="dropdown__item" href="my-polls.php?type=quiz" role="menuitem">Мои викторины</a>
                         <button class="dropdown__item auth-logout" type="button" role="menuitem" data-auth-logout>Выйти</button>
                     </div>
                 </div>
@@ -248,9 +246,6 @@ function renderAuthControls() {
                 </button>
             `;
         }
-        
-        // Восстанавливаем кнопку темы
-        if (themeToggle) root.appendChild(themeToggle);
         
         document.querySelectorAll('[data-auth-profile], .nav__right [data-dropdown]').forEach((dropdown) => {
             const trigger = dropdown.querySelector('.dropdown__trigger');
@@ -300,11 +295,16 @@ function openTelegramAuthModal(botUsername) {
             <p>Подтвердите вход в окне Telegram.</p>
             <p class="auth-modal__status" data-auth-widget-status>Загружаем Telegram...</p>
             <div class="auth-modal__widget" data-telegram-widget></div>
+            <button class="auth-modal__switch" type="button" data-auth-switch>Войти через другой аккаунт</button>
         </div>
     `;
     modal.querySelector('.auth-modal__close').addEventListener('click', () => modal.remove());
     modal.addEventListener('click', (event) => {
         if (event.target === modal) modal.remove();
+    });
+    modal.querySelector('[data-auth-switch]').addEventListener('click', () => {
+        modal.remove();
+        setTimeout(() => openTelegramAuthModal(botUsername), 100);
     });
     document.body.append(modal);
     console.log('[TelegramAuth] Modal created and appended');
@@ -416,7 +416,7 @@ function renderTelegramLoginFrame(modal, botUsername) {
             if (data.height) iframe.style.height = data.height + 'px';
             if (data.width) iframe.style.width = data.width + 'px';
         } else if (data.event === 'ready') {
-            status.textContent = 'Нажмите кнопку "Log in with Telegram" в окне ниже.';
+            status.textContent = 'Загрузка виджета...';
             status.classList.remove('is-error');
         } else if (data.event === 'get_coords') {
             postToTelegram('callback', { _cb: data._cb, value: frameCoords() });
@@ -684,38 +684,50 @@ function renderCards(list, items, type) {
 
 async function initMyPollsPage(root) {
     const list = root.querySelector('[data-list]');
+    const title = root.querySelector('[data-my-polls-title]');
     if (!list) return;
+    
+    const params = new URLSearchParams(window.location.search);
+    const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
+    document.body.dataset.contentType = type;
+    
+    if (title) title.textContent = type === 'quiz' ? 'Мои викторины' : 'Мои опросы';
+    
+    document.querySelectorAll('[data-type-link]').forEach((link) => {
+        link.classList.toggle('is-active', link.dataset.typeLink === type);
+    });
+    
     try {
         const state = await authReady;
         if (!state.authenticated) {
             renderMessage(list, 'Войдите в аккаунт, чтобы увидеть свои опросы.', false);
             return;
         }
-        const data = await apiJSON('/api/v1/me/polls');
-        renderMyPolls(list, data.items || []);
+        const data = await apiJSON('/api/v1/me/' + (type === 'quiz' ? 'quizzes' : 'polls'));
+        renderMyPolls(list, data.items || [], type);
     } catch (e) {
         renderMessage(list, e.message, true);
     }
 }
 
-function renderMyPolls(list, items) {
+function renderMyPolls(list, items, type = 'poll') {
     list.replaceChildren();
     if (!items.length) {
-        renderMessage(list, 'У вас пока нет опросов. Создайте первый!', false);
+        renderMessage(list, type === 'quiz' ? 'У вас пока нет викторин. Создайте первую!' : 'У вас пока нет опросов. Создайте первый!', false);
         return;
     }
     items.forEach((item) => {
         const card = document.createElement('a');
         card.className = 'content-card';
-        card.href = 'view.php?type=poll&id=' + encodeURIComponent(item.id);
+        card.href = 'view.php?type=' + type + '&id=' + encodeURIComponent(item.id);
         const votesLabel = (item.total_votes != null && item.total_votes > 0)
             ? `${item.total_votes} ${pluralVotes(item.total_votes)}`
             : 'Нет голосов';
         card.innerHTML = `
             <h2>${escapeHtml(item.title)}</h2>
-            <p>${escapeHtml(item.description || 'Опрос без описания')}</p>
+            <p>${escapeHtml(item.description || (type === 'quiz' ? 'Викторина' : 'Опрос'))}</p>
             <div class="content-card__footer">
-                <span>Открыть опрос</span>
+                <span>${type === 'quiz' ? 'Открыть викторину' : 'Открыть опрос'}</span>
                 <small class="content-card__votes">${escapeHtml(votesLabel)}</small>
             </div>
         `;
