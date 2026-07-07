@@ -1,5 +1,19 @@
-﻿<!DOCTYPE html>
-<html lang="ru">
+﻿<?php
+// Обработка смены темы через URL параметр
+if (isset($_GET['theme']) && $_GET['theme'] === 'toggle') {
+    $currentTheme = $_COOKIE['votely_theme'] ?? '';
+    $newTheme = ($currentTheme === 'light') ? 'dark' : 'light';
+    setcookie('votely_theme', $newTheme, time() + (365 * 24 * 60 * 60), '/');
+    header('Location: ' . $_SERVER['PHP_SELF'] . '?' . http_build_query(array_diff_key($_GET, ['theme' => ''])));
+    exit;
+}
+$themeClass = '';
+if (isset($_COOKIE['votely_theme'])) {
+    $themeClass = ' data-theme="' . htmlspecialchars($_COOKIE['votely_theme'], ENT_QUOTES, 'UTF-8') . '"';
+}
+?>
+<!DOCTYPE html>
+<html lang="ru"<?php echo $themeClass; ?>>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -110,7 +124,8 @@
 
                     <div class="footer__contact">
                         <a class="footer__email" href="mailto:help@votely.local">help@votely.local</a>
-                        <div class="footer__social-row" aria-label="Социальные сети">
+                    <div class="footer__social-row" aria-label="Социальные сети">
+                        <a class="footer__link theme-toggle" href="?theme=toggle" aria-label="Переключить тему">🌙</a>
                             <a class="footer__social" href="#" aria-label="Telegram">TG</a>
                         </div>
                     </div>

@@ -15,31 +15,60 @@ let authReady = Promise.resolve(authState);
 
 // Theme Toggle
 function initTheme() {
-    const toggle = document.getElementById('theme-toggle');
+    const params = new URLSearchParams(window.location.search);
+    const urlTheme = params.get('theme');
     const stored = localStorage.getItem('votely_theme');
     const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
-    const theme = stored || (prefersLight ? 'light' : 'dark');
+    const theme = (urlTheme === 'dark' || urlTheme === 'light') ? urlTheme : (stored || (prefersLight ? 'light' : 'dark'));
     
     document.documentElement.setAttribute('data-theme', theme);
-    updateToggleIcon(theme);
+    if (urlTheme === 'dark' || urlTheme === 'light') {
+        localStorage.setItem('votely_theme', theme);
+    }
+    updateToggleIcons(theme);
+    updateThemeLinks(theme);
     
-    if (toggle) {
-        toggle.addEventListener('click', () => {
+    document.querySelectorAll('.theme-toggle').forEach((toggle) => {
+        toggle.addEventListener('click', (event) => {
+            if (toggle.tagName === 'A') event.preventDefault();
             const current = document.documentElement.getAttribute('data-theme');
             const next = current === 'light' ? 'dark' : 'light';
-            document.documentElement.setAttribute('data-theme', next);
-            localStorage.setItem('votely_theme', next);
-            updateToggleIcon(next);
+            applyTheme(next);
         });
-    }
+    });
 }
-    
-function updateToggleIcon(theme) {
-    const toggle = document.getElementById('theme-toggle');
-    if (toggle) {
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('votely_theme', theme);
+    updateToggleIcons(theme);
+    updateThemeLinks(theme);
+    const url = new URL(window.location.href);
+    url.searchParams.set('theme', theme);
+    window.history.replaceState({}, '', url);
+}
+
+function updateThemeLinks(theme) {
+    const next = theme === 'light' ? 'dark' : 'light';
+    const url = new URL(window.location.href);
+    url.searchParams.set('theme', next);
+    const href = url.pathname + url.search + url.hash;
+    document.querySelectorAll('a.theme-toggle.footer__link').forEach((link) => {
+        link.href = href;
+    });
+}
+
+function updateToggleIcons(theme) {
+    document.querySelectorAll('.theme-toggle').forEach((toggle) => {
+        const isFooterToggle = toggle.classList.contains('footer__link');
+        if (isFooterToggle) {
+            toggle.textContent = theme === 'light' ? '☀️' : '🌙';
+            toggle.setAttribute('aria-label', 'Переключить тему');
+            return;
+        }
         toggle.textContent = theme === 'light' ? '☀️' : '🌙';
         toggle.setAttribute('aria-label', theme === 'light' ? 'Переключить на тёмную тему' : 'Переключить на светлую тему');
-    }
+    });
 }
 
 initTheme();
@@ -246,7 +275,7 @@ async function openLoginFromConfig() {
     }
     openTelegramAuthModal(config.bot_username);
 }
-
+    
 function openTelegramAuthModal(botUsername) {
     console.log('[TelegramAuth] openTelegramAuthModal called with botUsername:', botUsername);
     document.querySelector('[data-auth-modal]')?.remove();
