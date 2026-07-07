@@ -214,6 +214,9 @@ function initLogoutUI() {
 
 function renderAuthControls() {
     document.querySelectorAll('.nav__right').forEach((root) => {
+        // Сохраняем кнопку темы перед перезаписью
+        const themeToggle = root.querySelector('#theme-toggle');
+        
         if (authState.authenticated) {
             root.innerHTML = `
                 <div class="auth-profile dropdown dropdown--right is-auth" data-auth-profile>
@@ -241,17 +244,21 @@ function renderAuthControls() {
                 </div>
             `;
         }
-    });
-    document.querySelectorAll('[data-auth-profile], .nav__right [data-dropdown]').forEach((dropdown) => {
-        const trigger = dropdown.querySelector('.dropdown__trigger');
-        trigger?.addEventListener('click', () => {
-            const expanded = trigger.getAttribute('aria-expanded') === 'true';
-            trigger.setAttribute('aria-expanded', String(!expanded));
-            dropdown.classList.toggle('is-open', !expanded);
+        
+        // Восстанавливаем кнопку темы
+        if (themeToggle) root.appendChild(themeToggle);
+        
+        document.querySelectorAll('[data-auth-profile], .nav__right [data-dropdown]').forEach((dropdown) => {
+            const trigger = dropdown.querySelector('.dropdown__trigger');
+            trigger?.addEventListener('click', () => {
+                const expanded = trigger.getAttribute('aria-expanded') === 'true';
+                trigger.setAttribute('aria-expanded', String(!expanded));
+                dropdown.classList.toggle('is-open', !expanded);
+            });
         });
+        initLogoutUI();
+        initTelegramAuthUI();
     });
-    initLogoutUI();
-    initTelegramAuthUI();
 }
 
 function initAuthGuards() {
