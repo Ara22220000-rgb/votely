@@ -1,4 +1,4 @@
-<?php
+<?ть уphp
 $adminTelegramUsers = [6725709823, 6357965364, 8415321014];
 $hashSecret = getenv("HASH_SECRET") ?: "dev-secret-key-for-local-development-only";
 
@@ -144,6 +144,8 @@ if (!$isAdmin) {
                 </div>
 
                 <p class="footer__bottom">© 2026 Votely</p>
+                <p class="footer__bottom_right">Версия: 26.3</p>
+                <div class="footer__theme-toggle" id="footer-theme-toggle" title="Переключить тему">🌙</div>
             </div>
         </footer>
     </div>

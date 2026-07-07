@@ -32,13 +32,30 @@ function initTheme() {
             updateToggleIcon(next);
         });
     }
+    
+    const footerToggle = document.getElementById('footer-theme-toggle');
+    if (footerToggle) {
+        footerToggle.addEventListener('click', () => {
+            const current = document.documentElement.getAttribute('data-theme');
+            const next = current === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('votely_theme', next);
+            updateToggleIcon(next);
+        });
+    }
 }
 
 function updateToggleIcon(theme) {
     const toggle = document.getElementById('theme-toggle');
+    const footerToggle = document.getElementById('footer-theme-toggle');
+    const icon = theme === 'light' ? '☀️' : '🌙';
     if (toggle) {
-        toggle.textContent = theme === 'light' ? '☀️' : '🌙';
+        toggle.textContent = icon;
         toggle.setAttribute('aria-label', theme === 'light' ? 'Переключить на тёмную тему' : 'Переключить на светлую тему');
+    }
+    if (footerToggle) {
+        footerToggle.textContent = icon;
+        footerToggle.title = theme === 'light' ? 'Тёмная тема' : 'Светлая тема';
     }
 }
 

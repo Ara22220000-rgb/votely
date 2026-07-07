@@ -124,6 +124,7 @@
                 </div>
 
                 <p class="footer__bottom">© 2026 Votely</p>
+                <div class="footer__theme-toggle" id="footer-theme-toggle" title="Переключить тему">🌙</div>
             </div>
         </footer>
     </div>
