@@ -90,14 +90,39 @@ if (isset($_COOKIE['votely_theme'])) {
                     <div>
                         <p class="creator__eyebrow">Аналитика</p>
                         <h1 class="creator__title" id="stats-title">Загрузка...</h1>
+                        <p class="creator__subtitle" id="stats-description"></p>
                     </div>
-                    <a href="javascript:history.back()" class="ghost-button">← Назад</a>
+                    <div class="creator__actions">
+                        <button class="primary-button create-link-btn" type="button" id="create-link-btn" hidden>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            Создать ссылку
+                        </button>
+                        <a href="javascript:history.back()" class="ghost-button">← Назад</a>
+                    </div>
                 </div>
 
                 <div id="stats-content" class="stats-content">
                     <div class="viewer-empty">
                         <div class="viewer-empty-icon">⏳</div>
                         <p>Загрузка статистики...</p>
+                    </div>
+                </div>
+
+                <div class="create-link-modal" id="create-link-modal" hidden>
+                    <div class="create-link-modal__overlay"></div>
+                    <div class="create-link-modal__panel">
+                        <h2 class="create-link-modal__title">Создать именную ссылку</h2>
+                        <p class="create-link-modal__desc">Придумайте название для ссылки, чтобы отслеживать переходы из разных источников.</p>
+                        <div class="field">
+                            <span class="field__label">Название ссылки</span>
+                            <input class="field__control" type="text" id="link-name-input" maxlength="80" placeholder="Например: telegram-ads">
+                        </div>
+                        <div class="create-link-modal__actions">
+                            <button class="ghost-button" type="button" id="cancel-link-btn">Отмена</button>
+                            <button class="primary-button" type="button" id="confirm-link-btn">Создать</button>
+                        </div>
                     </div>
                 </div>
             </section>

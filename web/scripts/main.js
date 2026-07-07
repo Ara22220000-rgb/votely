@@ -843,10 +843,78 @@ async function renderStatsBlock(container, poll, stats, pollID = '', ownerKey = 
         <div>
             <p class="creator__eyebrow">Статистика владельца</p>
             <h1 class="viewer__title">${escapeHtml(poll.title)}</h1>
-            <p class="viewer__description">${escapeHtml(poll.description || 'Опрос без описания')}</p>
+            <p class="creator__subtitle" id="stats-description">${escapeHtml(poll.description || 'Опрос без описания')}</p>
         </div>
         <div class="metric-box"><span>${stats.total_votes || 0}</span><small>голосов</small></div>
     `;
+    
+    // Обновляем заголовок и описание в шапке
+    const statsTitle = document.getElementById('stats-title');
+    const statsDesc = document.getElementById('stats-description');
+    if (statsTitle) statsTitle.textContent = poll.title || 'Статистика';
+    if (statsDesc) statsDesc.textContent = poll.description || '';
+    
+    // Показываем кнопку создания ссылки если владелец
+    const createLinkBtn = document.getElementById('create-link-btn');
+    if (createLinkBtn && pollID) {
+        createLinkBtn.hidden = false;
+        createLinkBtn.onclick = () => {
+            const modal = document.getElementById('create-link-modal');
+            if (modal) modal.hidden = false;
+        };
+        
+        // Обработчики модального окна
+        const cancelBtn = document.getElementById('cancel-link-btn');
+        const confirmBtn = document.getElementById('confirm-link-btn');
+        const linkInput = document.getElementById('link-name-input');
+        
+        if (cancelBtn) {
+            cancelBtn.onclick = () => {
+                const modal = document.getElementById('create-link-modal');
+                if (modal) modal.hidden = true;
+                if (linkInput) linkInput.value = '';
+            };
+        }
+        
+        if (confirmBtn && linkInput) {
+            confirmBtn.onclick = async () => {
+                const name = linkInput.value.trim();
+                if (!name) {
+                    showToast('Введите название ссылки');
+                    return;
+                }
+                confirmBtn.disabled = true;
+                try {
+                    const query = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+                    await apiJSON('/api/v1/polls/' + encodeURIComponent(pollID) + '/links' + query, {
+                        method: 'POST',
+                        body: JSON.stringify({ name })
+                    });
+                    const modal = document.getElementById('create-link-modal');
+                    if (modal) modal.hidden = true;
+                    linkInput.value = '';
+                    showToast('Ссылка создана', 'success');
+                    // Перезагружаем страницу для обновления списка ссылок
+                    setTimeout(() => window.location.reload(), 1000);
+                } catch (error) {
+                    showToast(error.message, 'error');
+                } finally {
+                    confirmBtn.disabled = false;
+                }
+            };
+        }
+        
+        // Закрытие по клику на overlay
+        const overlay = document.querySelector('.create-link-modal__overlay');
+        if (overlay) {
+            overlay.onclick = () => {
+                const modal = document.getElementById('create-link-modal');
+                if (modal) modal.hidden = true;
+                if (linkInput) linkInput.value = '';
+            };
+        }
+    }
+    
     const chartSection = document.createElement('section');
     chartSection.className = 'stats-chart-section';
     const totalVotes = stats.total_votes || 0;
@@ -1032,7 +1100,7 @@ function renderShareLinks(list, pollID, ownerKey, links) {
         list.append(row);
     });
 }
-
+    
 function buildShareURL(pollID, slug) {
     const url = new URL('/view.php', window.location.origin);
     url.searchParams.set('type', 'poll');
@@ -1256,41 +1324,40 @@ function buildPieSvg(options) {
         return svg;
     }
     
-    // Проверяем, все ли голоса за один вариант (100%)
-    const hasSingleOption = options.some(opt => opt.votes === total);
-    
-    if (hasSingleOption && options.length === 1) {
-        // Рисуем полный круг с небольшой меткой для 100%
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', piePath(60, 60, 48, -90, 270));
-        path.setAttribute('fill', chartColor(0));
-        svg.append(path);
-        
-        // Добавляем небольшую метку-полосу для визуализации 100%
-        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        marker.setAttribute('cx', '60');
-        marker.setAttribute('cy', '12');
-        marker.setAttribute('r', '4');
-        marker.setAttribute('fill', '#fff');
-        marker.setAttribute('opacity', '0.5');
-        svg.append(marker);
-        
-        return svg;
-    }
-    
     let current = -90;
     options.forEach((option, index) => {
         const votes = option.votes || 0;
-        // Для предотвращения проблем с отображением, минимальный угол - 2 градуса
+        // Рассчитываем процент для каждого варианта
+        const percent = total > 0 ? (votes / total) * 100 : 0;
+        // Угол в градусах (минимум 2 градуса для видимости)
         const angle = votes > 0 ? Math.max(2, (votes / total) * 360) : 0;
         const start = current;
         const end = start + angle;
         current = end;
+        
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', piePath(60, 60, 48, start, end));
         path.setAttribute('fill', chartColor(index));
+        path.setAttribute('data-percent', percent.toFixed(1));
+        path.setAttribute('data-text', option.text);
         svg.append(path);
     });
+    
+    // Добавляем текст с процентами в центр для каждого сегмента
+    if (options.length === 1) {
+        // Для одного варианта (100%) показываем текст в центре
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', '60');
+        text.setAttribute('y', '60');
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('dominant-baseline', 'middle');
+        text.setAttribute('fill', '#ffffff');
+        text.setAttribute('font-size', '14');
+        text.setAttribute('font-weight', '700');
+        text.textContent = '100%';
+        svg.append(text);
+    }
+    
     return svg;
 }
 
