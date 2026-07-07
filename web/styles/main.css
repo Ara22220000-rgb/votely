@@ -4381,7 +4381,8 @@ Premium Page Styles
 }
 
 .premium-faq {
-    padding-bottom: 50px;
+    padding-bottom: 10px;
+    padding-top: 50px;
 }
 
 .premium-faq__inner {

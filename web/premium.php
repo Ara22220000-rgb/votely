@@ -103,7 +103,7 @@ if (isset($_COOKIE['votely_theme'])) {
                 </div>
             </nav>
         </header>
-
+        <br><br><br><br>
             <section class="premium-body">
             <main class="premium-page">
             <section class="premium-hero">
@@ -198,7 +198,7 @@ if (isset($_COOKIE['votely_theme'])) {
                 </div>
             </section>
         </main>
-
+        <br><br><br><br>
         <footer class="site-footer">
             <div class="footer__inner">
                 <div class="footer__top">
