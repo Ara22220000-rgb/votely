@@ -12,9 +12,18 @@ import (
 )
 
 var (
-	ErrDuplicateVote     = errors.New("duplicate vote")
-	ErrPollClosed        = errors.New("poll closed")
-	ErrCountryNotAllowed = errors.New("country not allowed")
+	ErrDuplicateVote        = errors.New("duplicate vote")
+	ErrPollClosed           = errors.New("poll closed")
+	ErrCountryNotAllowed    = errors.New("country not allowed")
+	ErrFreePlanVoteLimit    = errors.New("free plan vote limit")
+	ErrFreePlanLinksLimit   = errors.New("free plan links limit")
+	ErrFreePlanContentLimit = errors.New("free plan content limit")
+)
+
+const (
+	freePlanMonthlyVotesLimit   = 100
+	freePlanShareLinksLimit     = 5
+	freePlanMonthlyContentLimit = 10
 )
 
 type (
@@ -283,8 +292,33 @@ func (s *Store) CreatePoll(ctx context.Context, input PollInput) (CreatedEntity,
 	}
 	defer rollback(ctx, tx)
 
+	if input.OwnerUserID != 0 {
+		var monthlyContentCount int
+		if err := tx.QueryRow(ctx, `
+			SELECT (
+				SELECT count(*)::int
+				FROM polls p
+				WHERE COALESCE(p.owner_telegram_id, p.owner_user_id) = $1
+					AND p.created_at >= date_trunc('month', now())
+					AND p.created_at < date_trunc('month', now()) + interval '1 month'
+			) + (
+				SELECT count(*)::int
+				FROM quizzes q
+				WHERE q.owner_user_id = $1
+					AND q.created_at >= date_trunc('month', now())
+					AND q.created_at < date_trunc('month', now()) + interval '1 month'
+			)`, input.OwnerUserID).Scan(&monthlyContentCount); err != nil {
+
+			return CreatedEntity{}, err
+		}
+		if monthlyContentCount >= freePlanMonthlyContentLimit {
+			return CreatedEntity{}, ErrFreePlanContentLimit
+		}
+	}
+
 	var id string
 	if err := tx.QueryRow(ctx,
+
 		`INSERT INTO polls (title, description, owner_user_id, owner_telegram_id, owner_key_hash, is_anonymous, shuffle_options, allowed_countries, ends_at, visibility)
 		VALUES ($1, $2, nullif($3::bigint, 0), nullif($4::bigint, 0), $5, $6, $7, $8, $9, $10) RETURNING id`,
 		strings.TrimSpace(input.Title),
@@ -325,8 +359,32 @@ func (s *Store) CreateQuiz(ctx context.Context, input QuizInput) (CreatedEntity,
 	}
 	defer rollback(ctx, tx)
 
+	if input.OwnerUserID != 0 {
+		var monthlyContentCount int
+		if err := tx.QueryRow(ctx, `
+			SELECT (
+				SELECT count(*)::int
+				FROM polls p
+				WHERE COALESCE(p.owner_telegram_id, p.owner_user_id) = $1
+					AND p.created_at >= date_trunc('month', now())
+					AND p.created_at < date_trunc('month', now()) + interval '1 month'
+			) + (
+				SELECT count(*)::int
+				FROM quizzes q
+				WHERE q.owner_user_id = $1
+					AND q.created_at >= date_trunc('month', now())
+					AND q.created_at < date_trunc('month', now()) + interval '1 month'
+			)`, input.OwnerUserID).Scan(&monthlyContentCount); err != nil {
+			return CreatedEntity{}, err
+		}
+		if monthlyContentCount >= freePlanMonthlyContentLimit {
+			return CreatedEntity{}, ErrFreePlanContentLimit
+		}
+	}
+
 	var quizID string
 	if err := tx.QueryRow(ctx,
+
 		`INSERT INTO quizzes (title, description, owner_user_id, owner_key_hash, allowed_countries, ends_at)
 		VALUES ($1, $2, nullif($3::bigint, 0), nullif($4, ''), $5, $6) RETURNING id`,
 		strings.TrimSpace(input.Title),
@@ -488,17 +546,20 @@ func (s *Store) VotePoll(ctx context.Context, pollID, optionID string, identity 
 	var exists bool
 	var isClosed bool
 	var allowedCountries []string
+	var ownerID sql.NullInt64
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (SELECT 1 FROM poll_options WHERE poll_id = $1 AND id = $2),
 			(p.closed_at IS NOT NULL OR (p.ends_at IS NOT NULL AND p.ends_at <= now())),
-			p.allowed_countries
+			p.allowed_countries,
+			COALESCE(p.owner_telegram_id, p.owner_user_id)
 		FROM polls p
 		WHERE p.id = $1`,
 		pollID,
 		optionID,
-	).Scan(&exists, &isClosed, &allowedCountries); err != nil {
+	).Scan(&exists, &isClosed, &allowedCountries, &ownerID); err != nil {
 		return VoteResult{}, err
 	}
+
 	if !exists {
 		return VoteResult{}, pgx.ErrNoRows
 	}
@@ -508,8 +569,24 @@ func (s *Store) VotePoll(ctx context.Context, pollID, optionID string, identity 
 	if len(allowedCountries) > 0 && !countryAllowed(identity.Country, allowedCountries) {
 		return VoteResult{}, ErrCountryNotAllowed
 	}
+	if ownerID.Valid {
+		var monthlyVotesCount int
+		if err := tx.QueryRow(ctx, `
+			SELECT count(*)::int
+			FROM poll_votes pv
+			JOIN polls p ON p.id = pv.poll_id
+			WHERE COALESCE(p.owner_telegram_id, p.owner_user_id) = $1
+				AND pv.created_at >= date_trunc('month', now())
+				AND pv.created_at < date_trunc('month', now()) + interval '1 month'`, ownerID.Int64).Scan(&monthlyVotesCount); err != nil {
+			return VoteResult{}, err
+		}
+		if monthlyVotesCount >= freePlanMonthlyVotesLimit {
+			return VoteResult{}, ErrFreePlanVoteLimit
+		}
+	}
 
 	var voteID string
+
 	// Приоритет проверки: telegram_user_id > voter_token_hash > ip_hash > device_hash
 	// Вставляем только один идентификатор за раз, чтобы избежать конфликтов по нескольким уникальным индексам
 	if identity.TelegramUserID != 0 {
@@ -620,6 +697,17 @@ func (s *Store) PollAccess(ctx context.Context, pollID, ownerKeyHash string, use
 }
 
 func (s *Store) CreatePollShareLink(ctx context.Context, input ShareLinkInput) (ShareLinkStats, error) {
+	var linksCount int
+	if err := s.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM poll_share_links
+		WHERE poll_id = $1`, input.PollID).Scan(&linksCount); err != nil {
+		return ShareLinkStats{}, err
+	}
+	if linksCount >= freePlanShareLinksLimit {
+		return ShareLinkStats{}, ErrFreePlanLinksLimit
+	}
+
 	var item ShareLinkStats
 	err := s.db.QueryRow(ctx, `
 		INSERT INTO poll_share_links (poll_id, name, slug, utm_source, utm_medium)

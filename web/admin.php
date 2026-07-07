@@ -66,7 +66,7 @@ if (isset($_COOKIE['votely_theme'])) {
     <link rel="icon" href="votely.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles/main.css?v=2">
 </head>
-<body>
+<body data-content-type="home" class="admin-page">
     <div class="page">
         <header class="site-header">
             <nav class="nav" aria-label="Основная навигация">
@@ -76,7 +76,7 @@ if (isset($_COOKIE['votely_theme'])) {
                 </a>
                 <div class="nav__middle">
                     <a class="nav-link" href="index.php">На сайт</a>
-                    <span class="nav-link admin-green-text">Панель управления</span>
+                    <span class="nav-link admin-accent-text">Панель управления</span>
                 </div>
                 <div class="nav__right">
                     <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Переключить тему">🌙</button>
@@ -144,7 +144,7 @@ if (isset($_COOKIE['votely_theme'])) {
                         <a class="footer__link" href="browse.php?type=poll">Опросы</a>
                         <a class="footer__link" href="create.php?type=quiz">Создать викторину</a>
                         <a class="footer__link" href="browse.php?type=quiz">Викторины</a>
-                        <a class="footer__link" href="#">Премиум</a>
+                        <a class="footer__link" href="premium.php">Премиум</a>
                         <a class="footer__link" href="wiki.php">Вики</a>
                     </nav>
 

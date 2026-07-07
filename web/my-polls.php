@@ -111,7 +111,7 @@ if (isset($_COOKIE['votely_theme'])) {
                         <a class="footer__link" href="browse.php?type=poll">Опросы</a>
                         <a class="footer__link" href="create.php?type=quiz">Создать викторину</a>
                         <a class="footer__link" href="browse.php?type=quiz">Викторины</a>
-                        <a class="footer__link" href="#">Премиум</a>
+                        <a class="footer__link" href="premium.php">Премиум</a>
                         <a class="footer__link" href="wiki.php">Вики</a>
                     </nav>
 

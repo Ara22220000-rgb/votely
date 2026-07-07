@@ -98,22 +98,24 @@ if (isset($_COOKIE['votely_theme'])) {
             </nav>
         </header>
 
-        <main class="hero">
-            <section class="hero__content" aria-labelledby="hero-title">
-                <img class="hero__logo" src="votely.svg" alt="">
-                <h1 class="hero__title" id="hero-title">Место, где можно быстро устроить голосование.</h1>
+        <main class="creator hero">
+            <section class="creator__panel hero__panel" style="display: flex;justify-content: center;align-items: center;">
+                <section class="hero__content" aria-labelledby="hero-title">
+                    <img class="hero__logo" src="votely.svg" alt="">
+                    <h1 class="hero__title" id="hero-title">Место, где можно быстро устроить голосование.</h1>
 
-                <div class="hero__actions">
-                    <div class="dropdown create-cta" data-dropdown>
-                        <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
-                            Создать
-                        </button>
-                        <div class="dropdown__menu" role="menu">
-                            <a class="dropdown__item" href="create.php?type=poll" role="menuitem">Создать опрос</a>
-                            <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
+                    <div class="hero__actions">
+                        <div class="dropdown create-cta" data-dropdown>
+                            <button class="dropdown__trigger" type="button" aria-haspopup="true" aria-expanded="false">
+                                Создать
+                            </button>
+                            <div class="dropdown__menu" role="menu">
+                                <a class="dropdown__item" href="create.php?type=poll" role="menuitem">Создать опрос</a>
+                                <a class="dropdown__item" href="create.php?type=quiz" role="menuitem">Создать викторину</a>
+                            </div>
                         </div>
                     </div>
-                </div>
+                </section>
             </section>
         </main>
 
@@ -134,7 +136,7 @@ if (isset($_COOKIE['votely_theme'])) {
                         <a class="footer__link" href="browse.php?type=poll">Опросы</a>
                         <a class="footer__link" href="create.php?type=quiz">Создать викторину</a>
                         <a class="footer__link" href="browse.php?type=quiz">Викторины</a>
-                        <a class="footer__link" href="#">Премиум</a>
+                        <a class="footer__link" href="premium.php">Премиум</a>
                         <a class="footer__link" href="wiki.php">Вики</a>
                     </nav>
 

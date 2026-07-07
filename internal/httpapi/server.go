@@ -150,11 +150,16 @@ func (s *apiServer) createPoll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	created, err := s.store.CreatePoll(r.Context(), input)
+	if errors.Is(err, store.ErrFreePlanContentLimit) {
+		writeError(w, http.StatusForbidden, "free_plan_content_limit", "Лимит бесплатного тарифа: не больше 10 опросов и викторин в месяц.")
+		return
+	}
 	if err != nil {
 		s.logger.Error("create poll failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать опрос.")
 		return
 	}
+
 	created.OwnerKey = ownerKey
 	writeJSON(w, http.StatusCreated, created)
 }
@@ -270,7 +275,12 @@ func (s *apiServer) votePoll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "country_not_allowed", "Голосование недоступно для вашей страны.")
 		return
 	}
+	if errors.Is(err, store.ErrFreePlanVoteLimit) {
+		writeError(w, http.StatusForbidden, "free_plan_vote_limit", "Лимит бесплатного тарифа: до 100 голосов в месяц.")
+		return
+	}
 	if err != nil {
+
 		s.logger.Error("vote poll failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось сохранить голос.")
 		return
@@ -344,11 +354,16 @@ func (s *apiServer) createPollShareLink(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	item, err := s.store.CreatePollShareLink(r.Context(), input)
+	if errors.Is(err, store.ErrFreePlanLinksLimit) {
+		writeError(w, http.StatusForbidden, "free_plan_links_limit", "Лимит бесплатного тарифа: до 5 именных ссылок на один опрос.")
+		return
+	}
 	if err != nil {
 		s.logger.Error("create poll link failed", "error", err)
 		writeError(w, http.StatusConflict, "link_exists", "Ссылка с таким названием уже есть.")
 		return
 	}
+
 	item.URL = s.pollLinkURL(r, id, item.Slug)
 	writeJSON(w, http.StatusCreated, item)
 }
@@ -511,11 +526,16 @@ func (s *apiServer) createQuiz(w http.ResponseWriter, r *http.Request) {
 	}
 
 	created, err := s.store.CreateQuiz(r.Context(), input)
+	if errors.Is(err, store.ErrFreePlanContentLimit) {
+		writeError(w, http.StatusForbidden, "free_plan_content_limit", "Лимит бесплатного тарифа: не больше 10 опросов и викторин в месяц.")
+		return
+	}
 	if err != nil {
 		s.logger.Error("create quiz failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать викторину.")
 		return
 	}
+
 	created.OwnerKey = ownerKey
 	writeJSON(w, http.StatusCreated, created)
 }

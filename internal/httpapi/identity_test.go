@@ -68,7 +68,8 @@ func TestVoterTokenRejectsTamperedCookie(t *testing.T) {
 }
 
 func TestClientIPParsesRemoteAddr(t *testing.T) {
-	ip, err := clientIP("127.0.0.1:12345")
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	ip, err := clientIP(req, "127.0.0.1:12345")
 	if err != nil {
 		t.Fatalf("clientIP() error = %v", err)
 	}
