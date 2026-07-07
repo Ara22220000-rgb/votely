@@ -1619,6 +1619,23 @@ document.addEventListener('DOMContentLoaded', () => {
     checkAuthStatus();
     initAuthGuards();
 
+    // Инициализация видео фона на главной
+    const video = document.querySelector('.hero-video');
+    if (video) {
+        // Принудительно запускаем видео сразу
+        video.muted = true;
+        video.play().catch(e => {
+            console.log('[Video] autoplay blocked:', e);
+            video.muted = false;
+            video.play().catch(e2 => console.log('[Video] still blocked:', e2));
+        });
+        
+        // Логирование для отладки
+        video.addEventListener('playing', () => console.log('[Video] ✓ playing (looping)'));
+        video.addEventListener('waiting', () => console.log('[Video] waiting/buffering'));
+        video.addEventListener('error', (e) => console.log('[Video] error:', video.error));
+    }
+        
     const createForm = document.querySelector('[data-create-form]');
     if (createForm) initCreateForm(createForm);
 

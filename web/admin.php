@@ -68,6 +68,13 @@ if (isset($_COOKIE['votely_theme'])) {
 </head>
 <body data-content-type="home" class="admin-page"<?php echo $themeClass; ?>>
     <div class="page">
+        <div class="hero-bg"></div>
+        <div class="hero-video-container">
+            <video class="hero-video" autoplay muted loop playsinline preload="auto">
+                <source src="images/fon.mp4" type="video/mp4">
+            </video>
+            <div class="hero-video-overlay"></div>
+        </div>
         <header class="site-header">
             <nav class="nav" aria-label="Основная навигация">
                 <a class="brand" href="index.php" aria-label="Votely, главная">

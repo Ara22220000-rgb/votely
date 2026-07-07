@@ -95,7 +95,7 @@ func NewServer(cfg ServerConfig) *http.Server {
 		Handler:           withRecovery(cfg.Logger, withRequestLog(cfg.Logger, withSecurityHeaders(api.withTrafficEvents(limiter.middleware(mux))))),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		WriteTimeout:      0,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
@@ -1189,7 +1189,7 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 
 func withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src https://oauth.telegram.org https://oauth.telegram.com https://telegram.org; connect-src 'self' https://oauth.telegram.org https://oauth.telegram.com https://telegram.org; img-src 'self' https://t.me https://telegram.org data:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; media-src 'self' blob:; script-src 'self' https://telegram.org 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src https://oauth.telegram.org https://oauth.telegram.com https://telegram.org; connect-src 'self' https://oauth.telegram.org https://oauth.telegram.com https://telegram.org; img-src 'self' https://t.me https://telegram.org data:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")

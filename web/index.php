@@ -23,9 +23,17 @@ if (isset($_COOKIE['votely_theme'])) {
 </head>
 <body data-content-type="home"<?php echo $themeClass; ?>>
     <div class="page">
-        <video class="hero-video" autoplay muted loop playsinline>
-            <source src="images/fon.mp4" type="video/mp4">
-        </video>
+        <!-- Фоновое изображение как фоллбэк -->
+        <div class="hero-bg"></div>
+        
+        <!-- Видео фон -->
+        <div class="hero-video-container">
+            <video class="hero-video" autoplay muted loop playsinline preload="auto">
+                <source src="images/fon.mp4" type="video/mp4">
+            </video>
+            <div class="hero-video-overlay"></div>
+        </div>
+        
         <header class="site-header">
             <nav class="nav" aria-label="Основная навигация">
                 <a class="brand" href="index.php" aria-label="Votely, главная">

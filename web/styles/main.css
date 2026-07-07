@@ -108,30 +108,44 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
-body[data-content-type="home"] {
-    background: #0a0a0a;
-}
-
-.hero-video {
+.hero-bg {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
-    height: 100%;
-    object-fit: cover;
-    z-index: -1;
+    height: 100vh;
+    z-index: -2;
+    background: url('../images/fon.png') center/cover no-repeat fixed;
 }
 
-body[data-content-type="home"] .hero::before {
-    content: '';
+.hero-video-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100vh;
+    z-index: -1;
+    overflow: hidden;
+    background: #0a0a0a;
+}
+
+.hero-video {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    min-width: 100%;
+    min-height: 100%;
+    width: auto;
+    height: auto;
+    transform: translate(-50%, -50%);
+    display: block;
+}
+
+.hero-video-overlay {
     position: absolute;
     inset: 0;
     background: linear-gradient(135deg, rgba(18, 18, 18, 0.75) 0%, rgba(18, 18, 18, 0.65) 100%);
-    z-index: 0;
-}
-
-body[data-content-type="home"] .hero {
-    position: relative;
+    z-index: 1;
 }
 
 html {
@@ -168,7 +182,7 @@ a {
 
 .site-header {
     position: relative;
-    z-index: 20;
+    z-index: 100;
     min-height: 72px;
     background: linear-gradient(180deg, rgba(18, 18, 18, 0.5) 0%, rgba(18, 18, 18, 0.2) 100%);
     backdrop-filter: blur(8px);
@@ -177,6 +191,16 @@ a {
     align-items: center;
     padding: 14px clamp(18px, 3vw, 42px);
     transition: background 200ms ease, backdrop-filter 200ms ease;
+}
+
+.hero-video-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100vh;
+    z-index: 0;
+    overflow: hidden;
 }
 
 [data-theme="light"] .site-header {
