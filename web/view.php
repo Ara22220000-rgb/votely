@@ -118,7 +118,6 @@
 
                 <p class="footer__bottom">© 2026 Votely</p>
                 <p class="footer__bottom_right">Версия: 26.3</p>
-                <div class="footer__theme-toggle" id="footer-theme-toggle" title="Переключить тему">🌙</div>
             </div>
         </footer>
     </div>
