@@ -147,6 +147,30 @@ function cleanText($value, $max) {
     return $value;
 }
 
+function parseUserAgent($ua) {
+    $ua = $value = trim((string)$ua);
+    $result = ['browser' => 'Unknown', 'os' => 'Unknown', 'device' => 'Desktop'];
+
+    // Browser
+    if (preg_match('/edg/i', $ua)) $result['browser'] = 'Edge';
+    elseif (preg_match('/opr|opera/i', $ua)) $result['browser'] = 'Opera';
+    elseif (preg_match('/chrome|crios/i', $ua)) $result['browser'] = 'Chrome';
+    elseif (preg_match('/firefox|fxios/i', $ua)) $result['browser'] = 'Firefox';
+    elseif (preg_match('/safari/i', $ua)) $result['browser'] = 'Safari';
+
+    // OS
+    if (preg_match('/windows/i', $ua)) $result['os'] = 'Windows';
+    elseif (preg_match('/mac os|macintosh|iphone|ipad/i', $ua)) $result['os'] = 'macOS';
+    elseif (preg_match('/android/i', $ua)) $result['os'] = 'Android';
+    elseif (preg_match('/linux/i', $ua)) $result['os'] = 'Linux';
+
+    // Device
+    if (preg_match('/mobile|android|iphone/i', $ua)) $result['device'] = 'Mobile';
+    elseif (preg_match('/ipad|tablet/i', $ua)) $result['device'] = 'Tablet';
+
+    return $result;
+}
+
 function getSessionUser($pdo) {
     $cookie = $_COOKIE["votely_session"] ?? "";
     if (!$cookie) return null;
@@ -261,6 +285,9 @@ function votePoll($pdo, $pollId) {
     $acceptLang = substr($_SERVER["HTTP_ACCEPT_LANGUAGE"] ?? "", 0, 256);
     $deviceHash = hash("sha256", $userAgent . "|" . $acceptLang . "|" . $ip);
     
+    // Parse User-Agent for analytics
+    $uaInfo = parseUserAgent($userAgent);
+    
     // Обработка link-параметра для отслеживания источника
     $linkSlug = $_GET["link"] ?? "";
     $shareLinkId = null;
@@ -277,18 +304,18 @@ function votePoll($pdo, $pollId) {
         $ipHash = hash("sha256", $ip);
         if ($shareLinkId !== null) {
             $stmt = $pdo->prepare("
-                INSERT INTO poll_votes (poll_id, option_id, device_hash, ip_hash, share_link_id)
-                VALUES (:pid, :oid, :dh, :ih, :lid)
+                INSERT INTO poll_votes (poll_id, option_id, device_hash, ip_hash, share_link_id, browser_type, os_type, device_type)
+                VALUES (:pid, :oid, :dh, :ih, :lid, :bt, :ost, :dt)
                 ON CONFLICT ON CONSTRAINT poll_votes_poll_device_hash_unique DO NOTHING
             ");
-            $stmt->execute([":pid" => $pollId, ":oid" => $oid, ":dh" => $deviceHash, ":ih" => $ipHash, ":lid" => $shareLinkId]);
+            $stmt->execute([":pid" => $pollId, ":oid" => $oid, ":dh" => $deviceHash, ":ih" => $ipHash, ":lid" => $shareLinkId, ":bt" => $uaInfo['browser'], ":ost" => $uaInfo['os'], ":dt" => $uaInfo['device']]);
         } else {
             $stmt = $pdo->prepare("
-                INSERT INTO poll_votes (poll_id, option_id, device_hash, ip_hash)
-                VALUES (:pid, :oid, :dh, :ih)
+                INSERT INTO poll_votes (poll_id, option_id, device_hash, ip_hash, browser_type, os_type, device_type)
+                VALUES (:pid, :oid, :dh, :ih, :bt, :ost, :dt)
                 ON CONFLICT ON CONSTRAINT poll_votes_poll_device_hash_unique DO NOTHING
             ");
-            $stmt->execute([":pid" => $pollId, ":oid" => $oid, ":dh" => $deviceHash, ":ih" => $ipHash]);
+            $stmt->execute([":pid" => $pollId, ":oid" => $oid, ":dh" => $deviceHash, ":ih" => $ipHash, ":bt" => $uaInfo['browser'], ":ost" => $uaInfo['os'], ":dt" => $uaInfo['device']]);
         }
         if ($stmt->rowCount() === 0) {
             jsonError(409, "already_voted", "Вы уже голосовали");

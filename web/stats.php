@@ -1,28 +1,14 @@
-<?php
-// Обработка смены темы через URL параметр
-if (isset($_GET['theme']) && $_GET['theme'] === 'toggle') {
-    $currentTheme = $_COOKIE['votely_theme'] ?? '';
-    $newTheme = ($currentTheme === 'light') ? 'dark' : 'light';
-    setcookie('votely_theme', $newTheme, time() + (365 * 24 * 60 * 60), '/');
-    header('Location: ' . $_SERVER['PHP_SELF'] . '?' . http_build_query(array_diff_key($_GET, ['theme' => ''])));
-    exit;
-}
-$themeClass = '';
-if (isset($_COOKIE['votely_theme'])) {
-    $themeClass = ' data-theme="' . htmlspecialchars($_COOKIE['votely_theme'], ENT_QUOTES, 'UTF-8') . '"';
-}
-?>
 <!DOCTYPE html>
-<html lang="ru"<?php echo $themeClass; ?>>
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Статистика · Votely</title>
     <link rel="icon" href="votely.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles/main.css?v=3">
+    <link rel="stylesheet" href="styles/main.css?v=4">
     <meta name="robots" content="noindex, nofollow">
 </head>
-<body data-content-type="stats"<?php echo $themeClass; ?>>
+<body data-content-type="stats">
     <div class="page">
         <div class="hero-bg"></div>
         <div class="hero-video-container">
@@ -100,13 +86,7 @@ if (isset($_COOKIE['votely_theme'])) {
                         <p class="creator__subtitle" id="stats-description"></p>
                     </div>
                     <div class="creator__actions">
-                        <button class="primary-button create-link-btn" type="button" id="create-link-btn" hidden>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                            </svg>
-                            Создать ссылку
-                        </button>
-                        <a href="javascript:history.back()" class="ghost-button">← Назад</a>
+                        <a href="javascript:history.back()" class="ghost-button" style="padding-top: 10px;">← Назад</a>
                     </div>
                 </div>
 
@@ -152,18 +132,20 @@ if (isset($_COOKIE['votely_theme'])) {
                         <a class="footer__link" href="browse.php?type=poll">Опросы</a>
                         <a class="footer__link" href="create.php?type=quiz">Создать викторину</a>
                         <a class="footer__link" href="browse.php?type=quiz">Викторины</a>
+                        <a class="footer__link" href="premium.php">Премиум</a>
                         <a class="footer__link" href="wiki.php">Вики</a>
                     </nav>
 
                     <div class="footer__contact">
                         <a class="footer__email" href="mailto:help@votely.local">help@votely.local</a>
                     <div class="footer__social-row" aria-label="Социальные сети">
-                            <a class="footer__social" href="#" aria-label="Telegram">TG</a>
+                            <a class="footer__social" href="https://t.me/votely_net" aria-label="Telegram">TG</a>
                         </div>
                     </div>
                 </div>
 
                 <p class="footer__bottom">© 2026 Votely</p>
+                <p class="footer__bottom_right">Версия: 26.3</p>
             </div>
         </footer>
     </div>

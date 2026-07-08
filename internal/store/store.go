@@ -259,6 +259,7 @@ type AdminSummary struct {
 
 type ShareLinkInput struct {
 	PollID string
+	QuizID string
 	Name   string
 	Slug   string
 }
@@ -951,6 +952,80 @@ func (s *Store) PollShareLinkBySlug(ctx context.Context, pollID, slug string) (S
 	return item, err
 }
 
+func (s *Store) CreateQuizShareLink(ctx context.Context, input ShareLinkInput) (ShareLinkStats, error) {
+	var linksCount int
+	if err := s.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM quiz_share_links
+		WHERE quiz_id = $1`, input.QuizID).Scan(&linksCount); err != nil {
+		return ShareLinkStats{}, err
+	}
+	if linksCount >= freePlanShareLinksLimit {
+		return ShareLinkStats{}, ErrFreePlanLinksLimit
+	}
+
+	var item ShareLinkStats
+	err := s.db.QueryRow(ctx, `
+		INSERT INTO quiz_share_links (quiz_id, name, slug, utm_source, utm_medium)
+		VALUES ($1, $2, $3, $3, 'named')
+		RETURNING id::text, name, slug, created_at::text`,
+		input.QuizID,
+		strings.TrimSpace(input.Name),
+		strings.TrimSpace(input.Slug),
+	).Scan(&item.ID, &item.Name, &item.Slug, &item.CreatedAt)
+	return item, err
+}
+
+func (s *Store) QuizShareLinks(ctx context.Context, quizID string) ([]ShareLinkStats, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT qsl.id::text, qsl.name, qsl.slug, qsl.created_at::text,
+			count(qa.id) FILTER (WHERE qa.id IS NOT NULL)::int as visits,
+			count(qa.id) FILTER (WHERE qa.id IS NOT NULL)::int as votes
+		FROM quiz_share_links qsl
+		LEFT JOIN quiz_attempts qa ON qa.share_link_id = qsl.id
+		WHERE qsl.quiz_id = $1
+		GROUP BY qsl.id, qsl.name, qsl.slug, qsl.created_at
+		ORDER BY qsl.created_at DESC`,
+		quizID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ShareLinkStats{}
+	for rows.Next() {
+		var item ShareLinkStats
+		if err := rows.Scan(&item.ID, &item.Name, &item.Slug, &item.CreatedAt, &item.Visits, &item.Votes); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) DeleteQuizShareLink(ctx context.Context, quizID, linkID string) error {
+	tag, err := s.db.Exec(ctx, `DELETE FROM quiz_share_links WHERE quiz_id = $1 AND id = $2`, quizID, linkID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) QuizShareLinkBySlug(ctx context.Context, quizID, slug string) (ShareLinkStats, error) {
+	var item ShareLinkStats
+	err := s.db.QueryRow(ctx, `
+		SELECT id::text, name, slug, created_at::text
+		FROM quiz_share_links
+		WHERE quiz_id = $1 AND slug = $2`,
+		quizID,
+		slug,
+	).Scan(&item.ID, &item.Name, &item.Slug, &item.CreatedAt)
+	return item, err
+}
+
 func (s *Store) RecordTrafficEvent(ctx context.Context, event TrafficEvent) error {
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO traffic_events (
@@ -1026,7 +1101,15 @@ func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, user
 
 	// Load analytics from traffic_events
 	rows, err := s.db.Query(ctx, `
-		SELECT 'browser' as type, COALESCE(NULLIF(split_part(split_part(user_agent, ' ', 1), '/', 1), ''), 'Other') as name, COUNT(*) as count
+		SELECT 'browser' as type,
+			CASE
+				WHEN user_agent LIKE '%Edg%' THEN 'Edge'
+				WHEN user_agent LIKE '%OPR%' OR user_agent LIKE '%Opera%' THEN 'Opera'
+				WHEN user_agent LIKE '%Chrome%' OR user_agent LIKE '%CriOS%' THEN 'Chrome'
+				WHEN user_agent LIKE '%Firefox%' OR user_agent LIKE '%FxiOS%' THEN 'Firefox'
+				WHEN user_agent LIKE '%Safari%' THEN 'Safari'
+				ELSE 'Other'
+			END as name, COUNT(*) as count
 		FROM traffic_events te
 		WHERE te.event_type = 'vote' AND te.poll_id = $1
 		GROUP BY type, name
@@ -1459,7 +1542,15 @@ func (s *Store) QuizStats(ctx context.Context, quizID, ownerKeyHash string, user
 	}
 
 	rows, err := s.db.Query(ctx, `
-		SELECT 'browser' as type, COALESCE(NULLIF(split_part(split_part(user_agent, ' ', 1), '/', 1), ''), 'Other') as name, COUNT(*) as count
+		SELECT 'browser' as type,
+			CASE
+				WHEN user_agent LIKE '%Edg%' THEN 'Edge'
+				WHEN user_agent LIKE '%OPR%' OR user_agent LIKE '%Opera%' THEN 'Opera'
+				WHEN user_agent LIKE '%Chrome%' OR user_agent LIKE '%CriOS%' THEN 'Chrome'
+				WHEN user_agent LIKE '%Firefox%' OR user_agent LIKE '%FxiOS%' THEN 'Firefox'
+				WHEN user_agent LIKE '%Safari%' THEN 'Safari'
+				ELSE 'Other'
+			END as name, COUNT(*) as count
 		FROM quiz_attempts qa
 		WHERE qa.quiz_id = $1
 		GROUP BY type, name
@@ -1585,6 +1676,31 @@ func (s *Store) QuizStats(ctx context.Context, quizID, ownerKeyHash string, user
 	}
 	rows.Close()
 
+	// Load quiz share links
+	linkRows, linkErr := s.db.Query(ctx, `
+		SELECT qsl.id::text, qsl.name, qsl.slug, qsl.created_at::text,
+			count(qa.id) FILTER (WHERE qa.id IS NOT NULL)::int as visits,
+			count(qa.id) FILTER (WHERE qa.id IS NOT NULL)::int as votes
+		FROM quiz_share_links qsl
+		LEFT JOIN quiz_attempts qa ON qa.share_link_id = qsl.id
+		WHERE qsl.quiz_id = $1
+		GROUP BY qsl.id, qsl.name, qsl.slug, qsl.created_at
+		ORDER BY visits DESC, votes DESC, qsl.created_at DESC`,
+		quizID,
+	)
+	if linkErr != nil {
+		return QuizStats{}, linkErr
+	}
+	defer linkRows.Close()
+	for linkRows.Next() {
+		var item ShareLinkStats
+		if err := linkRows.Scan(&item.ID, &item.Name, &item.Slug, &item.CreatedAt, &item.Visits, &item.Votes); err != nil {
+			return QuizStats{}, err
+		}
+		stats.Analytics.Links = append(stats.Analytics.Links, item)
+	}
+	linkRows.Close()
+
 	return stats, nil
 }
 
@@ -1661,7 +1777,7 @@ func scanList(rows pgx.Rows) ([]ListItem, error) {
 				if v, ok := values[i].(string); ok {
 					item.CreatedAt = v
 				}
-			case "count":
+			case "count", "total_votes":
 				if v, ok := values[i].(int32); ok {
 					item.TotalVotes = int(v)
 				} else if v, ok := values[i].(int64); ok {

@@ -15,7 +15,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS poll_votes_poll_device_unique
     ON poll_votes(poll_id, device_hash)
     WHERE device_hash IS NOT NULL;
 
--- Добавляем проверку на длину voter_token_hash
-ALTER TABLE poll_votes
-    ADD CONSTRAINT IF NOT EXISTS poll_votes_voter_token_hash_length_check 
-    CHECK (voter_token_hash IS NULL OR char_length(voter_token_hash) = 64);
+-- Добавляем проверку на длину voter_token_hash (PostgreSQL)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'poll_votes_voter_token_hash_length_check'
+    ) THEN
+        ALTER TABLE poll_votes
+            ADD CONSTRAINT poll_votes_voter_token_hash_length_check 
+            CHECK (voter_token_hash IS NULL OR char_length(voter_token_hash) = 64);
+    END IF;
+END $$;

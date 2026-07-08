@@ -1,12 +1,4 @@
 <?php
-// Обработка смены темы через URL параметр
-if (isset($_GET['theme']) && $_GET['theme'] === 'toggle') {
-    $currentTheme = $_COOKIE['votely_theme'] ?? '';
-    $newTheme = ($currentTheme === 'light') ? 'dark' : 'light';
-    setcookie('votely_theme', $newTheme, time() + (365 * 24 * 60 * 60), '/');
-    header('Location: ' . $_SERVER['PHP_SELF'] . '?' . http_build_query(array_diff_key($_GET, ['theme' => ''])));
-    exit;
-}
 $adminTelegramUsers = [6725709823, 6357965364, 8415321014];
 $hashSecret = getenv("HASH_SECRET") ?: "dev-secret-key-for-local-development-only";
 
@@ -52,13 +44,9 @@ if (!$isAdmin) {
     header("Location: /index.php", true, 302);
     exit;
 }
-$themeClass = '';
-if (isset($_COOKIE['votely_theme'])) {
-    $themeClass = ' data-theme="' . htmlspecialchars($_COOKIE['votely_theme'], ENT_QUOTES, 'UTF-8') . '"';
-}
 ?>
 <!DOCTYPE html>
-<html lang="ru"<?php echo $themeClass; ?>>
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -66,7 +54,7 @@ if (isset($_COOKIE['votely_theme'])) {
     <link rel="icon" href="votely.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles/main.css?v=3">
 </head>
-<body data-content-type="home" class="admin-page"<?php echo $themeClass; ?>>
+<body data-content-type="home" class="admin-page">
     <div class="page">
         <div class="hero-bg"></div>
         <div class="hero-video-container">

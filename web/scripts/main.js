@@ -13,66 +13,6 @@
 let authState = { authenticated: false, user: null };
 let authReady = Promise.resolve(authState);
 
-// Theme Toggle
-function initTheme() {
-    const params = new URLSearchParams(window.location.search);
-    const urlTheme = params.get('theme');
-    const stored = localStorage.getItem('votely_theme');
-    const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
-    const theme = (urlTheme === 'dark' || urlTheme === 'light') ? urlTheme : (stored || (prefersLight ? 'light' : 'dark'));
-    
-    document.documentElement.setAttribute('data-theme', theme);
-    if (urlTheme === 'dark' || urlTheme === 'light') {
-        localStorage.setItem('votely_theme', theme);
-    }
-    updateToggleIcons(theme);
-    updateThemeLinks(theme);
-    
-    document.querySelectorAll('.theme-toggle').forEach((toggle) => {
-        toggle.addEventListener('click', (event) => {
-            if (toggle.tagName === 'A') event.preventDefault();
-            const current = document.documentElement.getAttribute('data-theme');
-            const next = current === 'light' ? 'dark' : 'light';
-            applyTheme(next);
-        });
-    });
-}
-
-function applyTheme(theme) {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('votely_theme', theme);
-    updateToggleIcons(theme);
-    updateThemeLinks(theme);
-    const url = new URL(window.location.href);
-    url.searchParams.set('theme', theme);
-    window.history.replaceState({}, '', url);
-}
-
-function updateThemeLinks(theme) {
-    const next = theme === 'light' ? 'dark' : 'light';
-    const url = new URL(window.location.href);
-    url.searchParams.set('theme', next);
-    const href = url.pathname + url.search + url.hash;
-    document.querySelectorAll('a.theme-toggle.footer__link').forEach((link) => {
-        link.href = href;
-    });
-}
-
-function updateToggleIcons(theme) {
-    document.querySelectorAll('.theme-toggle').forEach((toggle) => {
-        const isFooterToggle = toggle.classList.contains('footer__link');
-        if (isFooterToggle) {
-            toggle.textContent = theme === 'light' ? '☀️' : '🌙';
-            toggle.setAttribute('aria-label', 'Переключить тему');
-            return;
-        }
-        toggle.textContent = theme === 'light' ? '☀️' : '🌙';
-        toggle.setAttribute('aria-label', theme === 'light' ? 'Переключить на тёмную тему' : 'Переключить на светлую тему');
-    });
-}
-
-initTheme();
-
 function initToasts() {
     if (document.querySelector('[data-toast-root]')) return;
     const root = document.createElement('div');
@@ -959,6 +899,7 @@ async function renderOwnerStats(container, poll, id, ownerKey) {
 async function initStatsPage() {
     const params = new URLSearchParams(window.location.search);
     const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
+    document.body.setAttribute('data-content-type', type);
     const id = params.get('id') || '';
     const ownerKey = params.get('owner_key') || '';
     const title = document.querySelector('#stats-title');
@@ -993,17 +934,6 @@ async function initQuizStatsPage(id, ownerKey, title, content) {
 }
 
 async function renderQuizStatsBlock(container, quiz, stats, quizID = '', ownerKey = '') {
-    const header = document.createElement('div');
-    header.className = 'stats-header';
-    header.innerHTML = `
-        <div>
-            <p class="creator__eyebrow">Статистика владельца</p>
-            <h1 class="viewer__title">${escapeHtml(quiz.title)}</h1>
-            <p class="creator__subtitle" id="stats-description">${escapeHtml(quiz.description || 'Викторина без описания')}</p>
-        </div>
-        <div class="metric-box"><span>${stats.total_attempts || 0}</span><small>ответов</small></div>
-    `;
-    
     const statsTitle = document.getElementById('stats-title');
     const statsDesc = document.getElementById('stats-description');
     if (statsTitle) statsTitle.textContent = quiz.title || 'Статистика';
@@ -1026,13 +956,21 @@ async function renderQuizStatsBlock(container, quiz, stats, quizID = '', ownerKe
     const dataLabels = document.createElement('div');
     dataLabels.className = 'donut-data-labels';
     (stats.answers || []).forEach((answer, index) => {
+        const color = chartColor(index);
+        const percent = answer.percent || 0;
         const item = document.createElement('div');
         item.className = 'donut-data-item';
+        item.style.setProperty('--swatch-color', color);
         item.innerHTML = `
-            <span class="donut-data-swatch" style="background:${chartColor(index)}"></span>
-            <span class="donut-data-text">${escapeHtml(answer.text)}</span>
-            <span class="donut-data-percent">${answer.percent}%</span>
-            <span class="donut-data-votes">${answer.votes} голосов</span>
+            <span class="donut-data-swatch" style="background:${color}"></span>
+            <div style="display:grid;gap:6px;min-width:0;">
+                <span class="donut-data-text">${escapeHtml(answer.text)}</span>
+                <div class="donut-data-progress">
+                    <div class="donut-data-progress-bar" style="width:${percent}%; background:${color}; box-shadow:0 0 8px ${color}"></div>
+                </div>
+            </div>
+            <span class="donut-data-percent">${percent}%</span>
+            <span class="donut-data-votes">${answer.votes} ${pluralVotes(answer.votes)}</span>
         `;
         dataLabels.append(item);
     });
@@ -1041,25 +979,18 @@ async function renderQuizStatsBlock(container, quiz, stats, quizID = '', ownerKe
     const meta = document.createElement('div');
     meta.className = 'stats-meta';
     meta.append(
-        metric('Доступ', stats.quiz?.visibility === 'private' ? 'Приватный' : 'Публичный'),
-        metric('Режим', stats.quiz?.allow_multiple ? 'Несколько ответов' : 'Один ответ')
+        metric('Тип', 'Викторина'),
+        metric('Доступ', stats.quiz?.visibility === 'private' ? 'Приватная' : 'Публичная'),
+        metric('Режим', stats.quiz?.allow_multiple ? 'Несколько ответов' : 'Один ответ'),
+        metric('Ответов', String(totalAttempts))
     );
-    const analytics = buildAnalyticsSection(stats.analytics || {});
-    container.replaceChildren(header, chartSection, meta, analytics);
+    const analytics = buildAnalyticsSection(stats.analytics || {}, 'quiz');
+    const links = quizID ? await buildShareLinksSection(quizID, ownerKey, stats.analytics?.links || [], 'quiz') : null;
+    container.replaceChildren(chartSection, meta, analytics);
+    if (links) container.append(links);
 }
 
 async function renderStatsBlock(container, poll, stats, pollID = '', ownerKey = '') {
-    const header = document.createElement('div');
-    header.className = 'stats-header';
-    header.innerHTML = `
-        <div>
-            <p class="creator__eyebrow">Статистика владельца</p>
-            <h1 class="viewer__title">${escapeHtml(poll.title)}</h1>
-            <p class="creator__subtitle" id="stats-description">${escapeHtml(poll.description || 'Опрос без описания')}</p>
-        </div>
-        <div class="metric-box"><span>${stats.total_votes || 0}</span><small>голосов</small></div>
-    `;
-    
     // Обновляем заголовок и описание в шапке
     const statsTitle = document.getElementById('stats-title');
     const statsDesc = document.getElementById('stats-description');
@@ -1144,12 +1075,20 @@ async function renderStatsBlock(container, poll, stats, pollID = '', ownerKey = 
     const dataLabels = document.createElement('div');
     dataLabels.className = 'donut-data-labels';
     (stats.options || []).forEach((option, index) => {
+        const color = chartColor(index);
+        const percent = option.percent || 0;
         const item = document.createElement('div');
         item.className = 'donut-data-item';
+        item.style.setProperty('--swatch-color', color);
         item.innerHTML = `
-            <span class="donut-data-swatch" style="background:${chartColor(index)}"></span>
-            <span class="donut-data-text">${escapeHtml(option.text)}</span>
-            <span class="donut-data-percent">${option.percent}%</span>
+            <span class="donut-data-swatch" style="background:${color}"></span>
+            <div style="display:grid;gap:6px;min-width:0;">
+                <span class="donut-data-text">${escapeHtml(option.text)}</span>
+                <div class="donut-data-progress">
+                    <div class="donut-data-progress-bar" style="width:${percent}%; background:${color}; box-shadow:0 0 8px ${color}"></div>
+                </div>
+            </div>
+            <span class="donut-data-percent">${percent}%</span>
             <span class="donut-data-votes">${option.votes} голосов</span>
         `;
         dataLabels.append(item);
@@ -1159,29 +1098,35 @@ async function renderStatsBlock(container, poll, stats, pollID = '', ownerKey = 
     const meta = document.createElement('div');
     meta.className = 'stats-meta';
     meta.append(
-        metric('Статус', stats.poll?.is_closed ? 'Завершен' : 'Активен'),
-        metric('Анонимность', stats.poll?.is_anonymous ? 'Включена' : 'Открытая'),
+        metric('Тип', 'Опрос'),
         metric('Доступ', stats.poll?.visibility === 'private' ? 'Приватный' : 'Публичный'),
-        metric('Страны', stats.poll?.allowed_countries?.length ? stats.poll.allowed_countries.join(', ') : 'Все')
+        metric('Режим', stats.poll?.allow_multiple ? 'Несколько вариантов' : 'Один вариант')
     );
     const analytics = buildAnalyticsSection(stats.analytics || {});
-    const links = pollID ? await buildShareLinksSection(pollID, ownerKey, stats.analytics?.links || []) : null;
-    container.replaceChildren(header, chartSection, meta, analytics);
+    const links = pollID ? await buildShareLinksSection(pollID, ownerKey, stats.analytics?.links || [], 'poll') : null;
+    container.replaceChildren(chartSection, meta, analytics);
     if (links) container.append(links);
 }
 
-function buildAnalyticsSection(analytics) {
+function buildAnalyticsSection(analytics, type = 'poll') {
     const section = document.createElement('section');
     section.className = 'stats-analytics';
     section.innerHTML = '<h2 class="stats-analytics__title">Аудитория</h2>';
     const grid = document.createElement('div');
     grid.className = 'stats-analytics__grid';
+    
+    // Нормализуем данные именных ссылок для карточки "Источники"
+    const linksData = (analytics.links || []).map(link => ({
+        name: link.name || link.slug || 'Unknown',
+        count: link.visits || 0
+    }));
+    
     grid.append(
         analyticsCard('Браузеры', analytics.browsers || []),
         analyticsCard('Устройства', analytics.devices || []),
         analyticsCard('ОС', analytics.os || []),
         analyticsCard('Страны', analytics.locations || []),
-        analyticsCard('Источники', analytics.sources || [])
+        analyticsCard('Источники', linksData)
     );
     section.append(grid);
     return section;
@@ -1200,36 +1145,50 @@ function analyticsCard(title, items) {
     }
     const body = document.createElement('div');
     body.className = 'analytics-card__body';
-    const chartWrap = document.createElement('div');
-    chartWrap.className = 'analytics-card__chart';
-    chartWrap.append(buildMiniPie(items));
-    const list = document.createElement('div');
-    list.className = 'analytics-list';
+
+    // Та же структура, что у первой диаграммы
+    const chartSection = document.createElement('div');
+    chartSection.className = 'stats-chart-section';
+
+    const pieChartWrap = document.createElement('div');
+    pieChartWrap.className = 'donut-chart-container';
+    const chartOptions = items.map((item) => ({ text: item.name, votes: item.count || 0 }));
+    pieChartWrap.append(buildDonutChart(chartOptions));
+
+    const dataLabels = document.createElement('div');
+    dataLabels.className = 'donut-data-labels';
+
+    const total = items.reduce((sum, item) => sum + (item.count || 0), 0);
+
     items.forEach((item, index) => {
+        const color = chartColor(index);
+        const count = item.count || 0;
+        const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+
         const row = document.createElement('div');
-        row.className = 'analytics-list__row';
+        row.className = 'donut-data-item';
+        row.style.setProperty('--swatch-color', color);
         row.innerHTML = `
-            <span class="analytics-list__name">
-                <span class="analytics-swatch" style="background:${chartColor(index)}"></span>
-                ${escapeHtml(item.name || 'Unknown')}
-            </span>
-            <span class="analytics-list__count">${item.count || 0}</span>
+            <span class="donut-data-swatch" style="background:${color}"></span>
+            <div style="display:grid;gap:6px;min-width:0;">
+                <span class="donut-data-text">${escapeHtml(item.name || 'Unknown')}</span>
+                <div class="donut-data-progress">
+                    <div class="donut-data-progress-bar" style="width:${percent}%; background:${color}; box-shadow:0 0 8px ${color}"></div>
+                </div>
+            </div>
+            <span class="donut-data-percent">${percent}%</span>
+            <span class="donut-data-votes">${count} голосов</span>
         `;
-        list.append(row);
+        dataLabels.append(row);
     });
-    body.append(chartWrap, list);
+
+    chartSection.append(pieChartWrap, dataLabels);
+    body.append(chartSection);
     card.append(body);
     return card;
 }
 
-function buildMiniPie(items) {
-    const options = items.map((item) => ({ text: item.name, votes: item.count || 0 }));
-    const svg = buildPieSvg(options);
-    svg.classList.add('pie-svg--mini');
-    return svg;
-}
-
-async function buildShareLinksSection(pollID, ownerKey, initialLinks) {
+async function buildShareLinksSection(itemID, ownerKey, initialLinks, type = 'poll') {
     const section = document.createElement('section');
     section.className = 'share-links-panel';
     section.innerHTML = `
@@ -1246,13 +1205,14 @@ async function buildShareLinksSection(pollID, ownerKey, initialLinks) {
     const input = section.querySelector('input');
     const button = section.querySelector('button');
     const query = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+    const basePath = '/api/v1/' + (type === 'quiz' ? 'quizzes' : 'polls') + '/' + encodeURIComponent(itemID) + '/links';
 
     async function loadLinks() {
-        const data = await apiJSON('/api/v1/polls/' + encodeURIComponent(pollID) + '/links' + query);
-        renderShareLinks(list, pollID, ownerKey, data.items || []);
+        const data = await apiJSON(basePath + query);
+        renderShareLinks(list, itemID, ownerKey, data.items || [], type);
     }
 
-    renderShareLinks(list, pollID, ownerKey, initialLinks);
+    renderShareLinks(list, itemID, ownerKey, initialLinks, type);
     button.addEventListener('click', async () => {
         const name = input.value.trim();
         if (!name) {
@@ -1261,7 +1221,7 @@ async function buildShareLinksSection(pollID, ownerKey, initialLinks) {
         }
         button.disabled = true;
         try {
-            await apiJSON('/api/v1/polls/' + encodeURIComponent(pollID) + '/links' + query, {
+            await apiJSON(basePath + query, {
                 method: 'POST',
                 body: JSON.stringify({ name })
             });
@@ -1277,21 +1237,23 @@ async function buildShareLinksSection(pollID, ownerKey, initialLinks) {
     return section;
 }
 
-function renderShareLinks(list, pollID, ownerKey, links) {
+function renderShareLinks(list, itemID, ownerKey, links, type = 'poll') {
     list.replaceChildren();
     if (!links.length) {
         renderMessage(list, 'Именных ссылок пока нет.', false);
         return;
     }
+    const basePath = '/api/v1/' + (type === 'quiz' ? 'quizzes' : 'polls') + '/' + encodeURIComponent(itemID) + '/links';
     links.forEach((link) => {
-        const url = link.url || buildShareURL(pollID, link.slug);
+        const url = link.url || buildShareURL(itemID, link.slug, type);
         const row = document.createElement('article');
         row.className = 'link-item';
+        const labelVotes = type === 'quiz' ? 'ответов' : 'голосов';
         row.innerHTML = `
             <div class="link-item__info">
                 <strong class="link-item__name">${escapeHtml(link.name)}</strong>
                 <span class="link-item__utm">${escapeHtml(url)}</span>
-                <span class="link-item__utm">${link.visits || 0} переходов · ${link.votes || 0} голосов</span>
+                <span class="link-item__utm">${link.visits || 0} переходов · ${link.votes || 0} ${labelVotes}</span>
             </div>
             <div class="link-item__actions">
                 <button class="link-item__btn link-item__btn--copy" type="button">Копировать</button>
@@ -1305,7 +1267,7 @@ function renderShareLinks(list, pollID, ownerKey, links) {
         row.querySelector('.link-item__btn--delete').addEventListener('click', async () => {
             if (!window.confirm('Удалить ссылку?')) return;
             const query = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
-            await apiJSON('/api/v1/polls/' + encodeURIComponent(pollID) + '/links/' + encodeURIComponent(link.id) + query, { method: 'DELETE' });
+            await apiJSON(basePath + '/' + encodeURIComponent(link.id) + query, { method: 'DELETE' });
             row.remove();
             showToast('Ссылка удалена', 'success');
         });
@@ -1313,10 +1275,10 @@ function renderShareLinks(list, pollID, ownerKey, links) {
     });
 }
     
-function buildShareURL(pollID, slug) {
+function buildShareURL(itemID, slug, type = 'poll') {
     const url = new URL('/view.php', window.location.origin);
-    url.searchParams.set('type', 'poll');
-    url.searchParams.set('id', pollID);
+    url.searchParams.set('type', type);
+    url.searchParams.set('id', itemID);
     url.searchParams.set('link', slug);
     url.searchParams.set('utm_source', slug);
     url.searchParams.set('utm_medium', 'named');
@@ -1618,25 +1580,25 @@ function buildDonutChart(options) {
 
 function buildPieSvg(options) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 120 120');
+    svg.setAttribute('viewBox', '0 0 280 280');
     svg.classList.add('pie-svg');
     const total = options.reduce((sum, option) => sum + (option.votes || 0), 0);
     
     // Нет голосов — показываем серое кольцо
     if (!total) {
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', '60');
-        circle.setAttribute('cy', '60');
-        circle.setAttribute('r', '42');
+        circle.setAttribute('cx', '140');
+        circle.setAttribute('cy', '140');
+        circle.setAttribute('r', '100');
         circle.setAttribute('fill', 'none');
         circle.setAttribute('stroke', '#2d2e31');
-        circle.setAttribute('stroke-width', '16');
+        circle.setAttribute('stroke-width', '40');
         svg.append(circle);
         return svg;
     }
     
     // Кольцевая диаграмма с сегментами
-    const circumference = 2 * Math.PI * 42;
+    const circumference = 2 * Math.PI * 100;
     let offset = 0;
     
     options.forEach((option, index) => {
@@ -1647,12 +1609,12 @@ function buildPieSvg(options) {
         const segmentLength = circumference * percent;
         
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', '60');
-        circle.setAttribute('cy', '60');
-        circle.setAttribute('r', '42');
+        circle.setAttribute('cx', '140');
+        circle.setAttribute('cy', '140');
+        circle.setAttribute('r', '100');
         circle.setAttribute('fill', 'none');
         circle.setAttribute('stroke', chartColor(index));
-        circle.setAttribute('stroke-width', '16');
+        circle.setAttribute('stroke-width', '40');
         circle.setAttribute('stroke-dasharray', `${segmentLength} ${circumference - segmentLength}`);
         circle.setAttribute('stroke-dashoffset', -offset);
         circle.setAttribute('data-percent', (percent * 100).toFixed(1));
@@ -1664,22 +1626,22 @@ function buildPieSvg(options) {
     
     // Текст с общим количеством в центре
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    text.setAttribute('x', '60');
-    text.setAttribute('y', '58');
+    text.setAttribute('x', '140');
+    text.setAttribute('y', '135');
     text.setAttribute('text-anchor', 'middle');
     text.setAttribute('fill', '#ffffff');
-    text.setAttribute('font-size', '18');
-    text.setAttribute('font-weight', '700');
+    text.setAttribute('font-size', '42');
+    text.setAttribute('font-weight', '800');
     text.textContent = total;
     svg.append(text);
     
     const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    label.setAttribute('x', '60');
-    label.setAttribute('y', '76');
+    label.setAttribute('x', '140');
+    label.setAttribute('y', '165');
     label.setAttribute('text-anchor', 'middle');
     label.setAttribute('fill', '#8d8d8f');
-    label.setAttribute('font-size', '10');
-    label.setAttribute('font-weight', '500');
+    label.setAttribute('font-size', '16');
+    label.setAttribute('font-weight', '600');
     label.textContent = 'голосов';
     svg.append(label);
     

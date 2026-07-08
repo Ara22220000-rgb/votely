@@ -77,6 +77,9 @@ func NewServer(cfg ServerConfig) *http.Server {
 	mux.HandleFunc("GET /api/v1/quizzes/{id}", api.getQuiz)
 	mux.HandleFunc("POST /api/v1/quizzes/{id}/answers", api.submitQuizAnswer)
 	mux.HandleFunc("GET /api/v1/quizzes/{id}/stats", api.quizStats)
+	mux.HandleFunc("GET /api/v1/quizzes/{id}/links", api.quizShareLinks)
+	mux.HandleFunc("POST /api/v1/quizzes/{id}/links", api.createQuizShareLink)
+	mux.HandleFunc("DELETE /api/v1/quizzes/{id}/links/{link_id}", api.deleteQuizShareLink)
 	mux.HandleFunc("DELETE /api/v1/quizzes/{id}", api.deleteQuiz)
 
 	mux.HandleFunc("GET /api/v1/auth/me", api.authMe)
@@ -423,6 +426,91 @@ func (s *apiServer) deletePollShareLink(w http.ResponseWriter, r *http.Request) 
 		return
 	} else if err != nil {
 		s.logger.Error("delete poll link failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось удалить ссылку.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *apiServer) quizShareLinks(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !uuidPattern.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
+		return
+	}
+	if !s.canManageQuiz(r, id) {
+		writeError(w, http.StatusForbidden, "forbidden", "Ссылки доступны владельцу викторины.")
+		return
+	}
+	items, err := s.store.QuizShareLinks(r.Context(), id)
+	if err != nil {
+		s.logger.Error("quiz links failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить ссылки.")
+		return
+	}
+	for i := range items {
+		items[i].URL = s.quizLinkURL(r, id, items[i].Slug)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *apiServer) createQuizShareLink(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !uuidPattern.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
+		return
+	}
+	if !s.canManageQuiz(r, id) {
+		writeError(w, http.StatusForbidden, "forbidden", "Ссылки может создавать только владелец викторины.")
+		return
+	}
+	var req createShareLinkRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	name, err := validateText(req.Name, "Название ссылки", maxShareLinkName, true)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	slug := slugify(name)
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", "Название ссылки должно содержать буквы или цифры.")
+		return
+	}
+	input := store.ShareLinkInput{QuizID: id, Name: name, Slug: slug}
+	item, err := s.store.CreateQuizShareLink(r.Context(), input)
+	if errors.Is(err, store.ErrFreePlanLinksLimit) {
+		writeError(w, http.StatusForbidden, "free_plan_links_limit", "Лимит бесплатного тарифа: до 5 именных ссылок на одну викторину.")
+		return
+	}
+	if err != nil {
+		s.logger.Error("create quiz link failed", "error", err)
+		writeError(w, http.StatusConflict, "link_exists", "Ссылка с таким названием уже есть.")
+		return
+	}
+
+	item.URL = s.quizLinkURL(r, id, item.Slug)
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *apiServer) deleteQuizShareLink(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	linkID := r.PathValue("link_id")
+	if !uuidPattern.MatchString(id) || !uuidPattern.MatchString(linkID) {
+		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
+		return
+	}
+	if !s.canManageQuiz(r, id) {
+		writeError(w, http.StatusForbidden, "forbidden", "Ссылки может удалять только владелец викторины.")
+		return
+	}
+	if err := s.store.DeleteQuizShareLink(r.Context(), id, linkID); errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "not_found", "Ссылка не найдена.")
+		return
+	} else if err != nil {
+		s.logger.Error("delete quiz link failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось удалить ссылку.")
 		return
 	}
@@ -866,6 +954,10 @@ func (s *apiServer) canManageQuiz(r *http.Request, quizID string) bool {
 func (s *apiServer) pollLinkURL(r *http.Request, pollID, slug string) string {
 
 	return absoluteBaseURL(r) + "/view.php?type=poll&id=" + pollID + "&link=" + slug + "&utm_source=" + slug + "&utm_medium=named"
+}
+
+func (s *apiServer) quizLinkURL(r *http.Request, quizID, slug string) string {
+	return absoluteBaseURL(r) + "/view.php?type=quiz&id=" + quizID + "&link=" + slug + "&utm_source=" + slug + "&utm_medium=named"
 }
 
 func (s *apiServer) adminMe(w http.ResponseWriter, r *http.Request) {
