@@ -453,11 +453,15 @@ func (s *Store) ListPolls(ctx context.Context, query string, userID int64) ([]Li
 	query = strings.TrimSpace(query)
 	if query == "" {
 		rows, err := s.db.Query(ctx, `
-			SELECT id::text, title, description, created_at::text,
-				(($1::bigint <> 0) AND (owner_user_id = $1 OR owner_telegram_id = $1)) AS is_owner
-			FROM polls
-			WHERE visibility = 'public'
-			ORDER BY created_at DESC
+			SELECT p.id::text, p.title, p.description, p.created_at::text,
+				(($2::bigint <> 0) AND (p.owner_user_id = $2 OR p.owner_telegram_id = $2)) AS is_owner,
+				COALESCE(v.cnt, 0)::int AS total_votes
+			FROM polls p
+			LEFT JOIN LATERAL (
+				SELECT count(*) AS cnt FROM poll_votes WHERE poll_id = p.id
+			) v ON true
+			WHERE p.visibility = 'public'
+			ORDER BY p.created_at DESC
 			LIMIT 100`, userID)
 		if err != nil {
 			return nil, err
@@ -468,11 +472,15 @@ func (s *Store) ListPolls(ctx context.Context, query string, userID int64) ([]Li
 
 	pattern := "%" + escapeLike(query) + "%"
 	rows, err := s.db.Query(ctx, `
-		SELECT id::text, title, description, created_at::text,
-			(($2::bigint <> 0) AND (owner_user_id = $2 OR owner_telegram_id = $2)) AS is_owner
-		FROM polls
-		WHERE visibility = 'public' AND (title ILIKE $1 ESCAPE '\' OR description ILIKE $1 ESCAPE '\')
-		ORDER BY created_at DESC
+		SELECT p.id::text, p.title, p.description, p.created_at::text,
+			(($2::bigint <> 0) AND (p.owner_user_id = $2 OR p.owner_telegram_id = $2)) AS is_owner,
+			COALESCE(v.cnt, 0)::int AS total_votes
+		FROM polls p
+		LEFT JOIN LATERAL (
+			SELECT count(*) AS cnt FROM poll_votes WHERE poll_id = p.id
+		) v ON true
+		WHERE p.visibility = 'public' AND (p.title ILIKE $1 ESCAPE '\' OR p.description ILIKE $1 ESCAPE '\')
+		ORDER BY p.created_at DESC
 		LIMIT 100`, pattern, userID)
 	if err != nil {
 		return nil, err
@@ -480,6 +488,7 @@ func (s *Store) ListPolls(ctx context.Context, query string, userID int64) ([]Li
 	defer rows.Close()
 	return scanList(rows)
 }
+
 
 
 func escapeLike(value string) string {
@@ -495,15 +504,20 @@ func (s *Store) ListQuizzes(ctx context.Context, query string, userID int64) ([]
 		return nil, err
 	}
 	if visibilityExists {
-		visibilityFilter = "WHERE visibility = 'public'"
+		visibilityFilter = "WHERE q.visibility = 'public'"
 	}
 
 	if query == "" {
 		rows, err := s.db.Query(ctx, `
-			SELECT id::text, title, description, created_at::text,
-				(($1::bigint <> 0) AND (owner_user_id = $1)) AS is_owner
-			FROM quizzes `+visibilityFilter+`
-			ORDER BY created_at DESC
+			SELECT q.id::text, q.title, q.description, q.created_at::text,
+				(($1::bigint <> 0) AND (q.owner_user_id = $1)) AS is_owner,
+				COALESCE(v.cnt, 0)::int AS total_votes
+			FROM quizzes q
+			LEFT JOIN LATERAL (
+				SELECT count(*) AS cnt FROM quiz_attempts WHERE quiz_id = q.id
+			) v ON true
+			`+visibilityFilter+`
+			ORDER BY q.created_at DESC
 			LIMIT 100`, userID)
 		if err != nil {
 			return nil, err
@@ -513,16 +527,20 @@ func (s *Store) ListQuizzes(ctx context.Context, query string, userID int64) ([]
 	}
 
 	pattern := "%" + escapeLike(query) + "%"
-	where := "WHERE (title ILIKE $1 ESCAPE '\\' OR description ILIKE $1 ESCAPE '\\')"
+	where := "WHERE (q.title ILIKE $1 ESCAPE '\\' OR q.description ILIKE $1 ESCAPE '\\')"
 	if visibilityFilter != "" {
-		where = "WHERE visibility = 'public' AND (title ILIKE $1 ESCAPE '\\' OR description ILIKE $1 ESCAPE '\\')"
+		where = "WHERE q.visibility = 'public' AND (q.title ILIKE $1 ESCAPE '\\' OR q.description ILIKE $1 ESCAPE '\\')"
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT id::text, title, description, created_at::text,
-			(($2::bigint <> 0) AND (owner_user_id = $2)) AS is_owner
-		FROM quizzes
+		SELECT q.id::text, q.title, q.description, q.created_at::text,
+			(($2::bigint <> 0) AND (q.owner_user_id = $2)) AS is_owner,
+			COALESCE(v.cnt, 0)::int AS total_votes
+		FROM quizzes q
+		LEFT JOIN LATERAL (
+			SELECT count(*) AS cnt FROM quiz_attempts WHERE quiz_id = q.id
+		) v ON true
 		`+where+`
-		ORDER BY created_at DESC
+		ORDER BY q.created_at DESC
 		LIMIT 100`, pattern, userID)
 	if err != nil {
 		return nil, err
@@ -530,6 +548,7 @@ func (s *Store) ListQuizzes(ctx context.Context, query string, userID int64) ([]
 	defer rows.Close()
 	return scanList(rows)
 }
+
 
 
 func (s *Store) quizVisibilityColumnExists(ctx context.Context) (bool, error) {
