@@ -212,7 +212,8 @@ function initLogoutUI() {
         button.dataset.logoutBound = '1';
         button.addEventListener('click', async () => {
             await apiJSON('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
-            persistLastAuthUser(authState.user);
+            localStorage.removeItem('votely:last-avatar');
+            localStorage.removeItem('votely:last-name');
             authState = { authenticated: false, user: null, isAdmin: false };
             authReady = Promise.resolve(authState);
             renderAuthControls();
@@ -302,16 +303,11 @@ function openTelegramAuthModal(botUsername) {
             <p>Подтвердите вход в окне Telegram.</p>
             <p class="auth-modal__status" data-auth-widget-status>Загружаем Telegram...</p>
             <div class="auth-modal__widget" data-telegram-widget></div>
-            <button class="auth-modal__switch" type="button" data-auth-switch>Войти через другой аккаунт</button>
         </div>
     `;
     modal.querySelector('.auth-modal__close').addEventListener('click', () => modal.remove());
     modal.addEventListener('click', (event) => {
         if (event.target === modal) modal.remove();
-    });
-    modal.querySelector('[data-auth-switch]').addEventListener('click', () => {
-        modal.remove();
-        setTimeout(() => openTelegramAuthModal(botUsername), 100);
     });
     document.body.append(modal);
     console.log('[TelegramAuth] Modal created and appended');

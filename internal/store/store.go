@@ -521,24 +521,24 @@ func (s *Store) ListUserQuizzes(ctx context.Context, userID int64, query string)
 	var err error
 	if query == "" {
 		rows, err = s.db.Query(ctx, `
-			SELECT q.id::text, q.title, q.description, q.created_at::text, count(qa.id)::int
+			SELECT q.id::text, q.title, q.description, q.created_at::text, count(qat.id)::int
 			FROM quizzes q
 			JOIN quiz_questions qq ON qq.quiz_id = q.id
 			JOIN quiz_answers qa ON qa.question_id = qq.id
 			LEFT JOIN quiz_attempts qat ON qat.answer_id = qa.id
-			WHERE q.owner_user_id = $1 OR q.owner_telegram_id = $1
+			WHERE q.owner_user_id = $1
 			GROUP BY q.id, q.title, q.description, q.created_at
 			ORDER BY q.created_at DESC
 			LIMIT 100`, userID)
 	} else {
 		pattern := "%" + escapeLike(query) + "%"
 		rows, err = s.db.Query(ctx, `
-			SELECT q.id::text, q.title, q.description, q.created_at::text, count(qa.id)::int
+			SELECT q.id::text, q.title, q.description, q.created_at::text, count(qat.id)::int
 			FROM quizzes q
 			JOIN quiz_questions qq ON qq.quiz_id = q.id
 			JOIN quiz_answers qa ON qa.question_id = qq.id
 			LEFT JOIN quiz_attempts qat ON qat.answer_id = qa.id
-			WHERE (q.owner_user_id = $1 OR q.owner_telegram_id = $1)
+			WHERE (q.owner_user_id = $1)
 				AND (q.title ILIKE $2 ESCAPE '\' OR q.description ILIKE $2 ESCAPE '\')
 			GROUP BY q.id, q.title, q.description, q.created_at
 			ORDER BY q.created_at DESC

@@ -1295,37 +1295,6 @@ a {
     color: #f87171;
 }
 
-.auth-modal__switch {
-    margin-top: 16px;
-    padding: 10px 18px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 600;
-    transition: all 140ms ease;
-}
-
-.auth-modal__switch:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
-    color: #ffffff;
-}
-
-[data-theme="light"] .auth-modal__switch {
-    background: rgba(0, 0, 0, 0.04);
-    border-color: rgba(0, 0, 0, 0.1);
-    color: #4a4a4a;
-}
-
-[data-theme="light"] .auth-modal__switch:hover {
-    background: rgba(0, 0, 0, 0.08);
-    border-color: rgba(0, 0, 0, 0.2);
-    color: #1a1a1a;
-}
-
 .auth-modal__close {
     position: absolute;
     top: 12px;
