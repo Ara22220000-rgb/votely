@@ -170,7 +170,7 @@ if (isset($_COOKIE['votely_theme'])) {
     <script src="scripts/main.js"></script>
     <script>
     (function() {
-        const csrf = document.querySelector('meta[name="csrf"]')?.content || '';
+        const sqlConsole = document.querySelector('[data-sql-console]');
         const sqlInput = document.querySelector('[data-sql-input]');
         const sqlRun = document.querySelector('[data-sql-run]');
         const sqlClear = document.querySelector('[data-sql-clear]');
@@ -194,6 +194,7 @@ if (isset($_COOKIE['votely_theme'])) {
                 return;
             }
 
+            const csrf = sqlConsole?.dataset.csrf || '';
             sqlRun.disabled = true;
             sqlRun.textContent = '⏳ Выполняется...';
             showResult('<div class="sql-loading">⏳ Выполняется запрос...</div>');

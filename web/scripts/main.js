@@ -1423,10 +1423,15 @@ async function initAdminPanel(root) {
     const list = root.querySelector('[data-admin-list]');
     const summary = root.querySelector('[data-admin-summary]');
     const logout = document.querySelector('[data-admin-logout]');
+    const sqlConsole = root.querySelector('[data-sql-console]');
 
     async function refreshSession() {
         const data = await apiJSON('/api/v1/admin/me');
         csrf = data.csrf || null;
+        // Делаем CSRF доступным для inline-скрипта SQL-консоли
+        if (sqlConsole && csrf) {
+            sqlConsole.dataset.csrf = csrf;
+        }
         loginBox.hidden = data.authenticated;
         panel.hidden = !data.authenticated;
         if (logout) logout.hidden = !data.authenticated;
