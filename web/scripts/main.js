@@ -569,10 +569,10 @@ function initCreateForm(form) {
                 if (input.name === 'is_private') {
                     if (type === 'quiz') {
                         label.textContent = input.checked ? 'Приватная' : 'Публичная';
-                        small.textContent = input.checked ? 'Викторина доступна только по прямой ссылке' : 'Викторина видна всем в списке';
+                        small.textContent = input.checked ? 'Викторина доступна только по прямой ссылке' : 'Викторина видна всем в списке и при поиске';
                     } else {
                         label.textContent = input.checked ? 'Приватный' : 'Публичный';
-                        small.textContent = input.checked ? 'Опрос доступен только по прямой ссылке' : 'Опрос виден всем в списке';
+                        small.textContent = input.checked ? 'Опрос доступен только по прямой ссылке' : 'Опрос виден всем в списке и при поиске';
                     }
                 }
             }
@@ -773,17 +773,56 @@ function renderCards(list, items, type) {
         return;
     }
     items.forEach((item) => {
-        const card = document.createElement('a');
-        card.className = 'content-card';
-        card.href = 'view.php?type=' + type + '&id=' + encodeURIComponent(item.id);
-        card.innerHTML = `
-            <h2>${escapeHtml(item.title)}</h2>
-            <p>${escapeHtml(item.description || (type === 'quiz' ? 'Викторина' : 'Опрос'))}</p>
-            <span>${type === 'quiz' ? 'Открыть викторину' : 'Открыть опрос'}</span>
-        `;
+        const card = buildContentCard(item, type, !!item.is_owner);
         list.append(card);
     });
 }
+
+function buildContentCard(item, type, isOwner) {
+    const card = document.createElement('a');
+    card.className = 'content-card';
+    card.href = 'view.php?type=' + type + '&id=' + encodeURIComponent(item.id);
+
+    const votesLabel = (item.total_votes != null && item.total_votes > 0)
+        ? `${item.total_votes} ${pluralVotes(item.total_votes)}`
+        : 'Нет голосов';
+    
+    card.innerHTML = `
+        ${isOwner ? `<button class="content-card__delete" type="button" title="Удалить" data-delete="${escapeHtml(item.id)}">✕</button>` : ''}
+        <h2>${escapeHtml(item.title)}</h2>
+        <p>${escapeHtml(item.description || (type === 'quiz' ? 'Викторина' : 'Опрос'))}</p>
+        <div class="content-card__footer">
+            <span>${type === 'quiz' ? 'Открыть викторину' : 'Открыть опрос'}</span>
+            <small class="content-card__votes">${escapeHtml(votesLabel)}</small>
+        </div>
+    `;
+    
+    if (isOwner) {
+        const deleteBtn = card.querySelector('[data-delete]');
+        deleteBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const id = deleteBtn.dataset.delete;
+            if (!window.confirm('Удалить ' + (type === 'quiz' ? 'викторину' : 'опрос') + '? Это действие нельзя отменить.')) {
+                return;
+            }
+            try {
+                await apiJSON('/api/v1/' + apiCollection(type) + '/' + encodeURIComponent(id), { method: 'DELETE' });
+                card.remove();
+                showToast(type === 'quiz' ? 'Викторина удалена' : 'Опрос удалён', 'success');
+                if (list.querySelectorAll('.content-card').length === 0) {
+                    renderMessage(list, type === 'quiz' ? 'У вас пока нет викторин. Создайте первую!' : 'У вас пока нет опросов. Создайте первый!', false);
+                }
+            } catch (error) {
+                showToast(error.message || 'Не удалось удалить', 'error');
+            }
+        });
+    }
+    
+    return card;
+}
+
+
 
 async function initMyPollsPage(root) {
     const list = root.querySelector('[data-list]');
@@ -831,23 +870,11 @@ function renderMyPolls(list, items, type = 'poll') {
         return;
     }
     items.forEach((item) => {
-        const card = document.createElement('a');
-        card.className = 'content-card';
-        card.href = 'view.php?type=' + type + '&id=' + encodeURIComponent(item.id);
-        const votesLabel = (item.total_votes != null && item.total_votes > 0)
-            ? `${item.total_votes} ${pluralVotes(item.total_votes)}`
-            : 'Нет голосов';
-        card.innerHTML = `
-            <h2>${escapeHtml(item.title)}</h2>
-            <p>${escapeHtml(item.description || (type === 'quiz' ? 'Викторина' : 'Опрос'))}</p>
-            <div class="content-card__footer">
-                <span>${type === 'quiz' ? 'Открыть викторину' : 'Открыть опрос'}</span>
-                <small class="content-card__votes">${escapeHtml(votesLabel)}</small>
-            </div>
-        `;
+        const card = buildContentCard(item, type, true);
         list.append(card);
     });
 }
+
 
 function pluralVotes(count) {
     const mod10 = count % 10;

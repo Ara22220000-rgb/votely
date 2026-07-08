@@ -70,13 +70,15 @@ func NewServer(cfg ServerConfig) *http.Server {
 	mux.HandleFunc("GET /api/v1/polls/{id}/links", api.pollShareLinks)
 	mux.HandleFunc("POST /api/v1/polls/{id}/links", api.createPollShareLink)
 	mux.HandleFunc("DELETE /api/v1/polls/{id}/links/{link_id}", api.deletePollShareLink)
-	mux.HandleFunc("DELETE /api/v1/polls/{id}", api.adminOnly(api.deletePoll, true))
+	mux.HandleFunc("DELETE /api/v1/polls/{id}", api.deletePoll)
+
 	mux.HandleFunc("GET /api/v1/quizzes", api.listQuizzes)
 	mux.HandleFunc("POST /api/v1/quizzes", api.createQuiz)
 	mux.HandleFunc("GET /api/v1/quizzes/{id}", api.getQuiz)
 	mux.HandleFunc("POST /api/v1/quizzes/{id}/answers", api.submitQuizAnswer)
 	mux.HandleFunc("GET /api/v1/quizzes/{id}/stats", api.quizStats)
-	mux.HandleFunc("DELETE /api/v1/quizzes/{id}", api.adminOnly(api.deleteQuiz, true))
+	mux.HandleFunc("DELETE /api/v1/quizzes/{id}", api.deleteQuiz)
+
 	mux.HandleFunc("GET /api/v1/auth/me", api.authMe)
 	mux.HandleFunc("GET /api/v1/auth/telegram/config", api.telegramConfig)
 	mux.HandleFunc("POST /api/v1/auth/telegram", api.telegramAuth)
@@ -120,7 +122,7 @@ func (s *apiServer) listPolls(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
-	items, err := s.store.ListPolls(r.Context(), query)
+	items, err := s.store.ListPolls(r.Context(), query, s.sessionUserID(r))
 	if err != nil {
 		s.logger.Error("list polls failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить опросы.")
@@ -536,7 +538,7 @@ func (s *apiServer) listQuizzes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
-	items, err := s.store.ListQuizzes(r.Context(), query)
+	items, err := s.store.ListQuizzes(r.Context(), query, s.sessionUserID(r))
 	if err != nil {
 		s.logger.Error("list quizzes failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить викторины.")
@@ -855,7 +857,14 @@ func (s *apiServer) canManagePoll(r *http.Request, pollID string) bool {
 	return err == nil && owner
 }
 
+func (s *apiServer) canManageQuiz(r *http.Request, quizID string) bool {
+	userID := s.sessionUserID(r)
+	_, owner, err := s.store.QuizAccess(r.Context(), quizID, s.ownerKeyHash(r), userID, isAdminUser(userID))
+	return err == nil && owner
+}
+
 func (s *apiServer) pollLinkURL(r *http.Request, pollID, slug string) string {
+
 	return absoluteBaseURL(r) + "/view.php?type=poll&id=" + pollID + "&link=" + slug + "&utm_source=" + slug + "&utm_medium=named"
 }
 
@@ -1338,6 +1347,14 @@ func (l *rateLimiter) allow(remoteAddr string) bool {
 
 func (s *apiServer) deletePoll(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if !uuidPattern.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
+		return
+	}
+	if !s.canManagePoll(r, id) {
+		writeError(w, http.StatusForbidden, "forbidden", "Удалить опрос может только создатель.")
+		return
+	}
 	if err := s.store.DeletePoll(r.Context(), id); err != nil {
 		s.logger.Error("delete poll failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось удалить.")
@@ -1348,6 +1365,14 @@ func (s *apiServer) deletePoll(w http.ResponseWriter, r *http.Request) {
 
 func (s *apiServer) deleteQuiz(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if !uuidPattern.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
+		return
+	}
+	if !s.canManageQuiz(r, id) {
+		writeError(w, http.StatusForbidden, "forbidden", "Удалить викторину может только создатель.")
+		return
+	}
 	if err := s.store.DeleteQuiz(r.Context(), id); err != nil {
 		s.logger.Error("delete quiz failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось удалить.")
@@ -1355,3 +1380,4 @@ func (s *apiServer) deleteQuiz(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+

@@ -176,7 +176,9 @@ type ListItem struct {
 	Description string `json:"description"`
 	CreatedAt   string `json:"created_at"`
 	TotalVotes  int    `json:"total_votes,omitempty"`
+	IsOwner     bool   `json:"is_owner,omitempty"`
 }
+
 
 type PollDetail struct {
 	ID               string       `json:"id"`
@@ -447,10 +449,16 @@ func (s *Store) CreateQuiz(ctx context.Context, input QuizInput) (CreatedEntity,
 	return CreatedEntity{ID: quizID}, nil
 }
 
-func (s *Store) ListPolls(ctx context.Context, query string) ([]ListItem, error) {
+func (s *Store) ListPolls(ctx context.Context, query string, userID int64) ([]ListItem, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		rows, err := s.db.Query(ctx, `SELECT id::text, title, description, created_at::text FROM polls WHERE visibility = 'public' ORDER BY created_at DESC LIMIT 100`)
+		rows, err := s.db.Query(ctx, `
+			SELECT id::text, title, description, created_at::text,
+				(($1::bigint <> 0) AND (owner_user_id = $1 OR owner_telegram_id = $1)) AS is_owner
+			FROM polls
+			WHERE visibility = 'public'
+			ORDER BY created_at DESC
+			LIMIT 100`, userID)
 		if err != nil {
 			return nil, err
 		}
@@ -460,11 +468,12 @@ func (s *Store) ListPolls(ctx context.Context, query string) ([]ListItem, error)
 
 	pattern := "%" + escapeLike(query) + "%"
 	rows, err := s.db.Query(ctx, `
-		SELECT id::text, title, description, created_at::text
+		SELECT id::text, title, description, created_at::text,
+			(($2::bigint <> 0) AND (owner_user_id = $2 OR owner_telegram_id = $2)) AS is_owner
 		FROM polls
 		WHERE visibility = 'public' AND (title ILIKE $1 ESCAPE '\' OR description ILIKE $1 ESCAPE '\')
 		ORDER BY created_at DESC
-		LIMIT 100`, pattern)
+		LIMIT 100`, pattern, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -472,12 +481,13 @@ func (s *Store) ListPolls(ctx context.Context, query string) ([]ListItem, error)
 	return scanList(rows)
 }
 
+
 func escapeLike(value string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 	return replacer.Replace(value)
 }
 
-func (s *Store) ListQuizzes(ctx context.Context, query string) ([]ListItem, error) {
+func (s *Store) ListQuizzes(ctx context.Context, query string, userID int64) ([]ListItem, error) {
 	query = strings.TrimSpace(query)
 	visibilityFilter := ""
 	visibilityExists, err := s.quizVisibilityColumnExists(ctx)
@@ -489,7 +499,12 @@ func (s *Store) ListQuizzes(ctx context.Context, query string) ([]ListItem, erro
 	}
 
 	if query == "" {
-		rows, err := s.db.Query(ctx, `SELECT id::text, title, description, created_at::text FROM quizzes `+visibilityFilter+` ORDER BY created_at DESC LIMIT 100`)
+		rows, err := s.db.Query(ctx, `
+			SELECT id::text, title, description, created_at::text,
+				(($1::bigint <> 0) AND (owner_user_id = $1)) AS is_owner
+			FROM quizzes `+visibilityFilter+`
+			ORDER BY created_at DESC
+			LIMIT 100`, userID)
 		if err != nil {
 			return nil, err
 		}
@@ -503,17 +518,19 @@ func (s *Store) ListQuizzes(ctx context.Context, query string) ([]ListItem, erro
 		where = "WHERE visibility = 'public' AND (title ILIKE $1 ESCAPE '\\' OR description ILIKE $1 ESCAPE '\\')"
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT id::text, title, description, created_at::text
+		SELECT id::text, title, description, created_at::text,
+			(($2::bigint <> 0) AND (owner_user_id = $2)) AS is_owner
 		FROM quizzes
 		`+where+`
 		ORDER BY created_at DESC
-		LIMIT 100`, pattern)
+		LIMIT 100`, pattern, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	return scanList(rows)
 }
+
 
 func (s *Store) quizVisibilityColumnExists(ctx context.Context) (bool, error) {
 	var exists bool
@@ -1593,23 +1610,55 @@ func (s *Store) AdminItems(ctx context.Context, itemType string) ([]ListItem, er
 
 func scanList(rows pgx.Rows) ([]ListItem, error) {
 	items := make([]ListItem, 0)
+	fields := rows.FieldDescriptions()
+
 	for rows.Next() {
-		var item ListItem
-		values, err := rows.Values()
-		if err != nil {
+		values := make([]any, len(fields))
+		dests := make([]any, len(fields))
+		for i := range values {
+			dests[i] = &values[i]
+		}
+		if err := rows.Scan(dests...); err != nil {
 			return nil, err
 		}
-		if len(values) == 5 {
-			if err := rows.Scan(&item.ID, &item.Title, &item.Description, &item.CreatedAt, &item.TotalVotes); err != nil {
-				return nil, err
+
+		item := ListItem{}
+		for i, field := range fields {
+			name := string(field.Name)
+			switch name {
+			case "id":
+				if v, ok := values[i].(string); ok {
+					item.ID = v
+				}
+			case "title":
+				if v, ok := values[i].(string); ok {
+					item.Title = v
+				}
+			case "description":
+				if v, ok := values[i].(string); ok {
+					item.Description = v
+				}
+			case "created_at":
+				if v, ok := values[i].(string); ok {
+					item.CreatedAt = v
+				}
+			case "count":
+				if v, ok := values[i].(int32); ok {
+					item.TotalVotes = int(v)
+				} else if v, ok := values[i].(int64); ok {
+					item.TotalVotes = int(v)
+				}
+			case "is_owner":
+				if v, ok := values[i].(bool); ok {
+					item.IsOwner = v
+				}
 			}
-		} else if err := rows.Scan(&item.ID, &item.Title, &item.Description, &item.CreatedAt); err != nil {
-			return nil, err
 		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
 }
+
 
 func rollback(ctx context.Context, tx pgx.Tx) {
 	err := tx.Rollback(ctx)
