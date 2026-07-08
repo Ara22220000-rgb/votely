@@ -1487,6 +1487,11 @@ function renderQuizView(container, data) {
             });
             renderQuizResult(container, data, result);
             showToast(result.is_correct ? 'Ответ сохранен: правильно' : 'Ответ сохранен', result.is_correct ? 'success' : 'error');
+            
+            // Запускаем конфетти при правильном ответе
+            if (result.is_correct && window.confetti) {
+                window.confetti.start();
+            }
         } catch (error) {
             showToast(error.message, 'error');
             setStatus(status, error.message, 'error');

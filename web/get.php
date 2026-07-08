@@ -160,7 +160,7 @@ if (isset($_COOKIE['votely_theme'])) {
         <footer class="site-footer">
             <div class="footer__inner">
                 <div class="footer__top">
-                    <div class="footer__brand">
+                     <div class="footer__brand">
                         <a class="footer__logo" href="index.php" aria-label="Votely, главная">
                             <img class="footer__logo-img" src="votely.svg" alt="">
                             <span>Votely</span>
@@ -193,6 +193,9 @@ if (isset($_COOKIE['votely_theme'])) {
     </div>
 
     <script src="scripts/main.js"></script>
+    <script src="scripts/smoke-grenade.js"></script>
+    <script src="scripts/glass-shatter.js"></script>
+    <script src="scripts/flash-drive-explosion.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             initGetPage();

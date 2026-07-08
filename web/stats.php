@@ -169,6 +169,10 @@ if (isset($_COOKIE['votely_theme'])) {
     </div>
 
     <script src="scripts/main.js?v=<?php echo time(); ?>"></script>
+    <script src="scripts/smoke-grenade.js"></script>
+    <script src="scripts/glass-shatter.js"></script>
+    <script src="scripts/flash-drive-explosion.js"></script>
+    <script src="scripts/confetti.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             initToasts();

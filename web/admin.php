@@ -168,6 +168,9 @@ if (isset($_COOKIE['votely_theme'])) {
         </footer>
     </div>
     <script src="scripts/main.js"></script>
+    <script src="scripts/smoke-grenade.js"></script>
+    <script src="scripts/glass-shatter.js"></script>
+    <script src="scripts/flash-drive-explosion.js"></script>
     <script>
     (function() {
         const sqlConsole = document.querySelector('[data-sql-console]');

@@ -250,5 +250,8 @@ if (isset($_COOKIE['votely_theme'])) {
     </div>
 
     <script src="scripts/main.js"></script>
+    <script src="scripts/smoke-grenade.js"></script>
+    <script src="scripts/glass-shatter.js"></script>
+    <script src="scripts/flash-drive-explosion.js"></script>
 </body>
 </html>

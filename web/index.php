@@ -112,7 +112,7 @@ if (isset($_COOKIE['votely_theme'])) {
             <section class="creator__panel hero__panel" style="display: flex;justify-content: center;align-items: center;">
                 <section class="hero__content" aria-labelledby="hero-title">
                     <img class="hero__logo" src="votely.svg" alt="">
-                    <h1 class="hero__title" id="hero-title">Место, где можно быстро устроить голосование.</h1>
+                    <h1 class="hero__title" id="hero-title">Место, где можно быстро устроить голосование</h1>
 
                     <div class="hero__actions">
                         <div class="dropdown create-cta" data-dropdown>
@@ -165,5 +165,9 @@ if (isset($_COOKIE['votely_theme'])) {
     </div>
 
     <script src="scripts/main.js"></script>
+    <script src="scripts/smoke-grenade.js"></script>
+    <script src="scripts/glass-shatter.js"></script>
+    <script src="scripts/flash-drive-explosion.js"></script>
+    <script src="scripts/confetti.js"></script>
 </body>
 </html>

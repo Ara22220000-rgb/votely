@@ -454,7 +454,7 @@ func (s *Store) ListPolls(ctx context.Context, query string, userID int64) ([]Li
 	if query == "" {
 		rows, err := s.db.Query(ctx, `
 			SELECT p.id::text, p.title, p.description, p.created_at::text,
-				(($2::bigint <> 0) AND (p.owner_user_id = $2 OR p.owner_telegram_id = $2)) AS is_owner,
+				(COALESCE(p.owner_user_id, p.owner_telegram_id) = $1) AS is_owner,
 				COALESCE(v.cnt, 0)::int AS total_votes
 			FROM polls p
 			LEFT JOIN LATERAL (
@@ -473,7 +473,7 @@ func (s *Store) ListPolls(ctx context.Context, query string, userID int64) ([]Li
 	pattern := "%" + escapeLike(query) + "%"
 	rows, err := s.db.Query(ctx, `
 		SELECT p.id::text, p.title, p.description, p.created_at::text,
-			(($2::bigint <> 0) AND (p.owner_user_id = $2 OR p.owner_telegram_id = $2)) AS is_owner,
+			(COALESCE(p.owner_user_id, p.owner_telegram_id) = $2) AS is_owner,
 			COALESCE(v.cnt, 0)::int AS total_votes
 		FROM polls p
 		LEFT JOIN LATERAL (
@@ -510,7 +510,7 @@ func (s *Store) ListQuizzes(ctx context.Context, query string, userID int64) ([]
 	if query == "" {
 		rows, err := s.db.Query(ctx, `
 			SELECT q.id::text, q.title, q.description, q.created_at::text,
-				(($1::bigint <> 0) AND (q.owner_user_id = $1)) AS is_owner,
+				(q.owner_user_id = $1) AS is_owner,
 				COALESCE(v.cnt, 0)::int AS total_votes
 			FROM quizzes q
 			LEFT JOIN LATERAL (
@@ -533,7 +533,7 @@ func (s *Store) ListQuizzes(ctx context.Context, query string, userID int64) ([]
 	}
 	rows, err := s.db.Query(ctx, `
 		SELECT q.id::text, q.title, q.description, q.created_at::text,
-			(($2::bigint <> 0) AND (q.owner_user_id = $2)) AS is_owner,
+			(q.owner_user_id = $2) AS is_owner,
 			COALESCE(v.cnt, 0)::int AS total_votes
 		FROM quizzes q
 		LEFT JOIN LATERAL (
@@ -1340,7 +1340,7 @@ func (s *Store) SubmitQuizAnswer(ctx context.Context, quizID string, answerIDs [
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO quiz_attempts (quiz_id, question_id, answer_id, telegram_user_id, is_correct)
 			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (quiz_id, telegram_user_id, answer_id) WHERE telegram_user_id IS NOT NULL DO NOTHING`,
+			ON CONFLICT DO NOTHING`,
 			quizID,
 			a.questionID,
 			answerIDs[i],
@@ -1685,3 +1685,4 @@ func rollback(ctx context.Context, tx pgx.Tx) {
 		return
 	}
 }
+
