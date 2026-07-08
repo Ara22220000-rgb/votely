@@ -1851,8 +1851,10 @@ a {
 }
 
 .stats-chart-section {
-    grid-template-columns: minmax(180px, 260px) 1fr;
-    gap: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
     margin-top: 10px;
 }
 
@@ -1872,11 +1874,114 @@ a {
     width: min(100%, 240px);
     height: auto;
     display: block;
+    transform: rotate(-90deg);
+}
+
+.pie-svg text {
+    transform: rotate(90deg);
+    transform-origin: 60px 60px;
 }
 
 .pie-svg--mini {
     width: min(100%, 100px);
     height: auto;
+    transform: rotate(-90deg);
+}
+
+.pie-svg--mini text {
+    transform: rotate(90deg);
+    transform-origin: 50px 50px;
+    font-size: 12px !important;
+}
+
+/* ===== Donut Chart (Large) ===== */
+.donut-chart-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    padding: 32px;
+    border-radius: 16px;
+    background: var(--surface-bg);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.donut-chart-svg {
+    width: min(100%, 400px);
+    height: auto;
+    display: block;
+    transform: rotate(-90deg);
+}
+
+.donut-chart-svg text {
+    transform: rotate(90deg);
+    transform-origin: 140px 140px;
+}
+
+/* Подписи к данным диаграммы */
+.donut-data-labels {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 100%;
+    max-width: 480px;
+}
+
+.donut-data-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 18px;
+    border-radius: 12px;
+    background: var(--surface-bg);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.donut-data-swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.donut-data-text {
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 16px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.donut-data-percent {
+    color: var(--accent);
+    font-size: 18px;
+    font-weight: 800;
+    min-width: 60px;
+    text-align: right;
+}
+
+.donut-data-votes {
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 600;
+    min-width: 90px;
+    text-align: right;
+}
+
+@media (max-width: 560px) {
+    .donut-data-item {
+        grid-template-columns: auto 1fr;
+        gap: 8px;
+    }
+
+    .donut-data-percent,
+    .donut-data-votes {
+        grid-column: 2;
+        text-align: left;
+        font-size: 13px;
+    }
 }
 
 .pie-svg circle[opacity] {

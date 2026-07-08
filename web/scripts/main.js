@@ -1012,32 +1012,32 @@ async function renderQuizStatsBlock(container, quiz, stats, quizID = '', ownerKe
     const chartSection = document.createElement('section');
     chartSection.className = 'stats-chart-section';
     const totalAttempts = stats.total_attempts || 0;
-    const pieChart = document.createElement('div');
-    pieChart.className = 'pie-chart-large';
+    
+    // Большая кольцевая диаграмма
+    const pieChartWrap = document.createElement('div');
+    pieChartWrap.className = 'donut-chart-container';
     if (totalAttempts > 0) {
-        pieChart.append(buildPieSvg(stats.answers || []));
+        pieChartWrap.append(buildDonutChart(stats.answers || []));
     } else {
-        pieChart.innerHTML = '<p class="stats-empty">Ответов пока нет</p>';
+        pieChartWrap.innerHTML = '<p class="stats-empty">Ответов пока нет</p>';
     }
-    const legend = document.createElement('div');
-    legend.className = 'stats-legend';
+    
+    // Подписи к данным под диаграммой
+    const dataLabels = document.createElement('div');
+    dataLabels.className = 'donut-data-labels';
     (stats.answers || []).forEach((answer, index) => {
         const item = document.createElement('div');
-        item.className = 'legend-item';
+        item.className = 'donut-data-item';
         item.innerHTML = `
-            <div class="legend-item__header">
-                <span class="legend-swatch" style="background:${chartColor(index)}"></span>
-                <span class="legend-text">${escapeHtml(answer.text)}</span>
-            </div>
-            <div class="legend-item__stats">
-                <strong>${answer.votes}</strong>
-                <span class="legend-percent">${answer.percent}%</span>
-            </div>
-            <div class="legend-bar"><div class="legend-bar__fill" style="width:${answer.percent}%"></div></div>
+            <span class="donut-data-swatch" style="background:${chartColor(index)}"></span>
+            <span class="donut-data-text">${escapeHtml(answer.text)}</span>
+            <span class="donut-data-percent">${answer.percent}%</span>
+            <span class="donut-data-votes">${answer.votes} голосов</span>
         `;
-        legend.append(item);
+        dataLabels.append(item);
     });
-    chartSection.append(pieChart, legend);
+    
+    chartSection.append(pieChartWrap, dataLabels);
     const meta = document.createElement('div');
     meta.className = 'stats-meta';
     meta.append(
@@ -1130,32 +1130,32 @@ async function renderStatsBlock(container, poll, stats, pollID = '', ownerKey = 
     const chartSection = document.createElement('section');
     chartSection.className = 'stats-chart-section';
     const totalVotes = stats.total_votes || 0;
-    const pieChart = document.createElement('div');
-    pieChart.className = 'pie-chart-large';
+    
+    // Большая кольцевая диаграмма
+    const pieChartWrap = document.createElement('div');
+    pieChartWrap.className = 'donut-chart-container';
     if (totalVotes > 0) {
-        pieChart.append(buildPieSvg(stats.options || []));
+        pieChartWrap.append(buildDonutChart(stats.options || []));
     } else {
-        pieChart.innerHTML = '<p class="stats-empty">Голосов пока нет</p>';
+        pieChartWrap.innerHTML = '<p class="stats-empty">Голосов пока нет</p>';
     }
-    const legend = document.createElement('div');
-    legend.className = 'stats-legend';
+    
+    // Подписи к данным под диаграммой
+    const dataLabels = document.createElement('div');
+    dataLabels.className = 'donut-data-labels';
     (stats.options || []).forEach((option, index) => {
         const item = document.createElement('div');
-        item.className = 'legend-item';
+        item.className = 'donut-data-item';
         item.innerHTML = `
-            <div class="legend-item__header">
-                <span class="legend-swatch" style="background:${chartColor(index)}"></span>
-                <span class="legend-text">${escapeHtml(option.text)}</span>
-            </div>
-            <div class="legend-item__stats">
-                <strong>${option.votes}</strong>
-                <span class="legend-percent">${option.percent}%</span>
-            </div>
-            <div class="legend-bar"><div class="legend-bar__fill" style="width:${option.percent}%"></div></div>
+            <span class="donut-data-swatch" style="background:${chartColor(index)}"></span>
+            <span class="donut-data-text">${escapeHtml(option.text)}</span>
+            <span class="donut-data-percent">${option.percent}%</span>
+            <span class="donut-data-votes">${option.votes} голосов</span>
         `;
-        legend.append(item);
+        dataLabels.append(item);
     });
-    chartSection.append(pieChart, legend);
+    
+    chartSection.append(pieChartWrap, dataLabels);
     const meta = document.createElement('div');
     meta.className = 'stats-meta';
     meta.append(
@@ -1546,65 +1546,142 @@ function renderQuizResult(container, data, result) {
     animateVoteBars(container);
 }
 
+function buildDonutChart(options) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 280 280');
+    svg.classList.add('donut-chart-svg');
+    const total = options.reduce((sum, option) => sum + (option.votes || 0), 0);
+    
+    // Нет голосов — показываем серое кольцо
+    if (!total) {
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', '140');
+        circle.setAttribute('cy', '140');
+        circle.setAttribute('r', '100');
+        circle.setAttribute('fill', 'none');
+        circle.setAttribute('stroke', '#2d2e31');
+        circle.setAttribute('stroke-width', '40');
+        svg.append(circle);
+        return svg;
+    }
+    
+    // Кольцевая диаграмма с сегментами
+    const circumference = 2 * Math.PI * 100;
+    let offset = 0;
+    
+    options.forEach((option, index) => {
+        const votes = option.votes || 0;
+        if (votes === 0) return;
+        
+        const percent = votes / total;
+        const segmentLength = circumference * percent;
+        
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', '140');
+        circle.setAttribute('cy', '140');
+        circle.setAttribute('r', '100');
+        circle.setAttribute('fill', 'none');
+        circle.setAttribute('stroke', chartColor(index));
+        circle.setAttribute('stroke-width', '40');
+        circle.setAttribute('stroke-dasharray', `${segmentLength} ${circumference - segmentLength}`);
+        circle.setAttribute('stroke-dashoffset', -offset);
+        circle.setAttribute('data-percent', (percent * 100).toFixed(1));
+        circle.setAttribute('data-text', option.text);
+        svg.append(circle);
+        
+        offset += segmentLength;
+    });
+    
+    // Текст с общим количеством в центре
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', '140');
+    text.setAttribute('y', '135');
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('fill', '#ffffff');
+    text.setAttribute('font-size', '42');
+    text.setAttribute('font-weight', '800');
+    text.textContent = total;
+    svg.append(text);
+    
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', '140');
+    label.setAttribute('y', '165');
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('fill', '#8d8d8f');
+    label.setAttribute('font-size', '16');
+    label.setAttribute('font-weight', '600');
+    label.textContent = 'голосов';
+    svg.append(label);
+    
+    return svg;
+}
+
 function buildPieSvg(options) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 120 120');
     svg.classList.add('pie-svg');
     const total = options.reduce((sum, option) => sum + (option.votes || 0), 0);
+    
+    // Нет голосов — показываем серое кольцо
     if (!total) {
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         circle.setAttribute('cx', '60');
         circle.setAttribute('cy', '60');
-        circle.setAttribute('r', '48');
-        circle.setAttribute('fill', '#2d2e31');
+        circle.setAttribute('r', '42');
+        circle.setAttribute('fill', 'none');
+        circle.setAttribute('stroke', '#2d2e31');
+        circle.setAttribute('stroke-width', '16');
         svg.append(circle);
         return svg;
     }
     
-    // Проверка: все голоса за один вариант (100%)
-    const votedOptions = options.filter((o) => (o.votes || 0) > 0);
-    const singleOptionFull = votedOptions.length === 1 && votedOptions[0].votes === total;
-    if (singleOptionFull) {
-        const fullIndex = options.findIndex((o) => (o.votes || 0) === total);
-        // Рисуем полный круг
+    // Кольцевая диаграмма с сегментами
+    const circumference = 2 * Math.PI * 42;
+    let offset = 0;
+    
+    options.forEach((option, index) => {
+        const votes = option.votes || 0;
+        if (votes === 0) return;
+        
+        const percent = votes / total;
+        const segmentLength = circumference * percent;
+        
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         circle.setAttribute('cx', '60');
         circle.setAttribute('cy', '60');
-        circle.setAttribute('r', '48');
-        circle.setAttribute('fill', chartColor(fullIndex >= 0 ? fullIndex : 0));
+        circle.setAttribute('r', '42');
+        circle.setAttribute('fill', 'none');
+        circle.setAttribute('stroke', chartColor(index));
+        circle.setAttribute('stroke-width', '16');
+        circle.setAttribute('stroke-dasharray', `${segmentLength} ${circumference - segmentLength}`);
+        circle.setAttribute('stroke-dashoffset', -offset);
+        circle.setAttribute('data-percent', (percent * 100).toFixed(1));
+        circle.setAttribute('data-text', option.text);
         svg.append(circle);
-        // Текст в центре
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', '60');
-        text.setAttribute('y', '60');
-        text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('dominant-baseline', 'middle');
-        text.setAttribute('fill', '#ffffff');
-        text.setAttribute('font-size', '14');
-        text.setAttribute('font-weight', '700');
-        text.textContent = '100%';
-        svg.append(text);
-        return svg;
-    }
-    
-    let current = -90;
-    options.forEach((option, index) => {
-        const votes = option.votes || 0;
-        // Рассчитываем процент для каждого варианта
-        const percent = total > 0 ? (votes / total) * 100 : 0;
-        // Угол в градусах (минимум 2 градуса для видимости)
-        const angle = votes > 0 ? Math.max(2, (votes / total) * 360) : 0;
-        const start = current;
-        const end = start + angle;
-        current = end;
         
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', piePath(60, 60, 48, start, end));
-        path.setAttribute('fill', chartColor(index));
-        path.setAttribute('data-percent', percent.toFixed(1));
-        path.setAttribute('data-text', option.text);
-        svg.append(path);
+        offset += segmentLength;
     });
+    
+    // Текст с общим количеством в центре
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', '60');
+    text.setAttribute('y', '58');
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('fill', '#ffffff');
+    text.setAttribute('font-size', '18');
+    text.setAttribute('font-weight', '700');
+    text.textContent = total;
+    svg.append(text);
+    
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', '60');
+    label.setAttribute('y', '76');
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('fill', '#8d8d8f');
+    label.setAttribute('font-size', '10');
+    label.setAttribute('font-weight', '500');
+    label.textContent = 'голосов';
+    svg.append(label);
     
     return svg;
 }
