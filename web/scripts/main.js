@@ -792,7 +792,7 @@ function buildContentCard(item, type, isOwner) {
         <h2>${escapeHtml(item.title)}</h2>
         <p>${escapeHtml(item.description || (type === 'quiz' ? 'Викторина' : 'Опрос'))}</p>
         <div class="content-card__footer">
-            <span>${type === 'quiz' ? 'Открыть викторину' : 'Открыть опрос'}</span>
+            <span class="content-card__action">${type === 'quiz' ? 'Открыть викторину' : 'Открыть опрос'}</span>
             <small class="content-card__votes">${escapeHtml(votesLabel)}</small>
         </div>
     `;
