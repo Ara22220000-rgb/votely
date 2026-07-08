@@ -239,7 +239,7 @@ if (isset($_COOKIE['votely_theme'])) {
                 </div>
 
                 <p class="footer__bottom">© 2026 Votely</p>
-                <p class="footer__bottom_right">Версия: 26.3</p>
+                <p class="footer__bottom_right">Версия: 26.6</p>
             </div>
         </footer>
     </div>

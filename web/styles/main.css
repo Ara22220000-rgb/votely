@@ -997,9 +997,10 @@ a {
 .field__control {
     width: 100%;
     min-height: 48px;
-    border: 1px solid var(--field-border);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 12px;
-    background: var(--field-bg);
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(8px);
     color: #ffffff;
     font-size: 16px;
     font-weight: 500;
@@ -1014,7 +1015,7 @@ a {
 
 .field__control:focus {
     border-color: var(--accent);
-    background: #1e1e1e;
+    background: rgba(255, 255, 255, 0.08);
     box-shadow: 0 0 0 3px var(--accent-rgba-soft);
 }
 
@@ -1026,7 +1027,17 @@ a {
 }
 
 .creator-form__section {
-    padding-top: 4px;
+    padding: 20px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.creator-form__section + .creator-form__section {
+    margin-top: 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 20px;
 }
 
 .creator-form__section-head {
@@ -1039,11 +1050,15 @@ a {
 
 .creator-form__subtitle {
     margin: 0;
-    color: #ffffff;
+    color: #e0e0e0;
     font-size: 20px;
     font-weight: 700;
     line-height: 1.2;
     letter-spacing: -0.01em;
+}
+
+[data-theme="light"] .creator-form__subtitle {
+    color: #1a1a1a;
 }
 
 .creator-form__hint {
@@ -3359,10 +3374,23 @@ a {
 }
 
 [data-theme="light"] .field__control {
-    background: #ffffff;
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.12);
     color: #1a1a1a;
-    border-color: #d1d5db;
-    font-weight: 500;
+}
+
+[data-theme="light"] .field__control:focus {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: var(--accent);
+}
+
+[data-theme="light"] .creator-form__section {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .creator-form__section + .creator-form__section {
+    border-top-color: rgba(0, 0, 0, 0.08);
 }
 
 [data-theme="light"] .field__control:focus {
