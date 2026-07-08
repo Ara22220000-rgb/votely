@@ -1556,6 +1556,32 @@ function buildPieSvg(options) {
         return svg;
     }
     
+    // Проверка: все голоса за один вариант (100%)
+    const votedOptions = options.filter((o) => (o.votes || 0) > 0);
+    const singleOptionFull = votedOptions.length === 1 && votedOptions[0].votes === total;
+    if (singleOptionFull) {
+        const fullIndex = options.findIndex((o) => (o.votes || 0) === total);
+        // Рисуем полный круг
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', '60');
+        circle.setAttribute('cy', '60');
+        circle.setAttribute('r', '48');
+        circle.setAttribute('fill', chartColor(fullIndex >= 0 ? fullIndex : 0));
+        svg.append(circle);
+        // Текст в центре
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', '60');
+        text.setAttribute('y', '60');
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('dominant-baseline', 'middle');
+        text.setAttribute('fill', '#ffffff');
+        text.setAttribute('font-size', '14');
+        text.setAttribute('font-weight', '700');
+        text.textContent = '100%';
+        svg.append(text);
+        return svg;
+    }
+    
     let current = -90;
     options.forEach((option, index) => {
         const votes = option.votes || 0;
@@ -1574,21 +1600,6 @@ function buildPieSvg(options) {
         path.setAttribute('data-text', option.text);
         svg.append(path);
     });
-    
-    // Добавляем текст с процентами в центр для каждого сегмента
-    if (options.length === 1) {
-        // Для одного варианта (100%) показываем текст в центре
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', '60');
-        text.setAttribute('y', '60');
-        text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('dominant-baseline', 'middle');
-        text.setAttribute('fill', '#ffffff');
-        text.setAttribute('font-size', '14');
-        text.setAttribute('font-weight', '700');
-        text.textContent = '100%';
-        svg.append(text);
-    }
     
     return svg;
 }
