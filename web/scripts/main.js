@@ -605,6 +605,12 @@ function initCreateForm(form) {
         input.dispatchEvent(event);
     });
     
+    // Для викторины: устанавливаем правильный тип input для ответов
+    if (type === 'quiz') {
+        const allowMultiple = form.querySelector('[data-quiz-fields]:not([hidden]) [name="allow_multiple"]')?.checked || false;
+        toggleAnswerInputType(form, allowMultiple);
+    }
+    
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = form.querySelector('[type="submit"]');
@@ -694,6 +700,16 @@ function toggleAnswerInputType(form, allowMultiple) {
             });
         }
     });
+    // Для radio: обработчик change для снятия других отметок
+    if (!allowMultiple) {
+        form.querySelectorAll('.correct-check[type="radio"]').forEach((radio) => {
+            radio.addEventListener('change', () => {
+                form.querySelectorAll('.correct-check[type="radio"]').forEach((other) => {
+                    if (other !== radio) other.checked = false;
+                });
+            });
+        });
+    }
 }
 
 function collectPollPayload(form) {
@@ -701,8 +717,8 @@ function collectPollPayload(form) {
         title: form.elements.title.value,
         description: form.elements.description.value,
         options: Array.from(form.querySelectorAll('[name="option"]')).map((input) => input.value),
-        visibility: form.elements.is_private?.checked ? 'private' : 'public',
-        allow_multiple: form.elements.allow_multiple?.checked || false
+        visibility: form.querySelector('[data-poll-fields]:not([hidden]) [name="is_private"]')?.checked ? 'private' : 'public',
+        allow_multiple: form.querySelector('[data-poll-fields]:not([hidden]) [name="allow_multiple"]')?.checked || false
     };
 }
 
@@ -1330,7 +1346,7 @@ function renderPollView(container, data, id) {
         e.preventDefault();
         const selected = allowMultiple 
             ? Array.from(form.querySelectorAll('input:checked')).map((input) => input.value)
-            : form.querySelector('input:checked');
+            : form.querySelector('input:checked')?.value;
         if (!selected || (Array.isArray(selected) && selected.length === 0)) {
             showToast('Выберите вариант');
             return;
