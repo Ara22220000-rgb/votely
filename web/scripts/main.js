@@ -1546,60 +1546,67 @@ function buildPieSvg(options) {
     svg.setAttribute('viewBox', '0 0 120 120');
     svg.classList.add('pie-svg');
     const total = options.reduce((sum, option) => sum + (option.votes || 0), 0);
+    
+    // Нет голосов — показываем серое кольцо
     if (!total) {
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         circle.setAttribute('cx', '60');
         circle.setAttribute('cy', '60');
-        circle.setAttribute('r', '48');
-        circle.setAttribute('fill', '#2d2e31');
+        circle.setAttribute('r', '42');
+        circle.setAttribute('fill', 'none');
+        circle.setAttribute('stroke', '#2d2e31');
+        circle.setAttribute('stroke-width', '16');
         svg.append(circle);
         return svg;
     }
     
-    // Проверка: все голоса за один вариант (100%)
-    const votedOptions = options.filter((o) => (o.votes || 0) > 0);
-    const singleOptionFull = votedOptions.length === 1 && votedOptions[0].votes === total;
-    if (singleOptionFull) {
-        const fullIndex = options.findIndex((o) => (o.votes || 0) === total);
-        // Рисуем полный круг
+    // Кольцевая диаграмма с сегментами
+    const circumference = 2 * Math.PI * 42;
+    let offset = 0;
+    
+    options.forEach((option, index) => {
+        const votes = option.votes || 0;
+        if (votes === 0) return;
+        
+        const percent = votes / total;
+        const segmentLength = circumference * percent;
+        
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         circle.setAttribute('cx', '60');
         circle.setAttribute('cy', '60');
-        circle.setAttribute('r', '48');
-        circle.setAttribute('fill', chartColor(fullIndex >= 0 ? fullIndex : 0));
+        circle.setAttribute('r', '42');
+        circle.setAttribute('fill', 'none');
+        circle.setAttribute('stroke', chartColor(index));
+        circle.setAttribute('stroke-width', '16');
+        circle.setAttribute('stroke-dasharray', `${segmentLength} ${circumference - segmentLength}`);
+        circle.setAttribute('stroke-dashoffset', -offset);
+        circle.setAttribute('data-percent', (percent * 100).toFixed(1));
+        circle.setAttribute('data-text', option.text);
         svg.append(circle);
-        // Текст в центре
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', '60');
-        text.setAttribute('y', '60');
-        text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('dominant-baseline', 'middle');
-        text.setAttribute('fill', '#ffffff');
-        text.setAttribute('font-size', '14');
-        text.setAttribute('font-weight', '700');
-        text.textContent = '100%';
-        svg.append(text);
-        return svg;
-    }
-    
-    let current = -90;
-    options.forEach((option, index) => {
-        const votes = option.votes || 0;
-        // Рассчитываем процент для каждого варианта
-        const percent = total > 0 ? (votes / total) * 100 : 0;
-        // Угол в градусах (минимум 2 градуса для видимости)
-        const angle = votes > 0 ? Math.max(2, (votes / total) * 360) : 0;
-        const start = current;
-        const end = start + angle;
-        current = end;
         
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', piePath(60, 60, 48, start, end));
-        path.setAttribute('fill', chartColor(index));
-        path.setAttribute('data-percent', percent.toFixed(1));
-        path.setAttribute('data-text', option.text);
-        svg.append(path);
+        offset += segmentLength;
     });
+    
+    // Текст с общим количеством в центре
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', '60');
+    text.setAttribute('y', '58');
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('fill', '#ffffff');
+    text.setAttribute('font-size', '18');
+    text.setAttribute('font-weight', '700');
+    text.textContent = total;
+    svg.append(text);
+    
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', '60');
+    label.setAttribute('y', '76');
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('fill', '#8d8d8f');
+    label.setAttribute('font-size', '10');
+    label.setAttribute('font-weight', '500');
+    label.textContent = 'голосов';
+    svg.append(label);
     
     return svg;
 }

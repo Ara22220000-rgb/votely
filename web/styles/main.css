@@ -1872,11 +1872,24 @@ a {
     width: min(100%, 240px);
     height: auto;
     display: block;
+    transform: rotate(-90deg);
+}
+
+.pie-svg text {
+    transform: rotate(90deg);
+    transform-origin: 60px 60px;
 }
 
 .pie-svg--mini {
     width: min(100%, 100px);
     height: auto;
+    transform: rotate(-90deg);
+}
+
+.pie-svg--mini text {
+    transform: rotate(90deg);
+    transform-origin: 50px 50px;
+    font-size: 12px !important;
 }
 
 .pie-svg circle[opacity] {
