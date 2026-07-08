@@ -24,6 +24,7 @@ type createPollRequest struct {
 	Options          []string `json:"options"`
 	IsAnonymous      bool     `json:"is_anonymous"`
 	ShuffleOptions   bool     `json:"shuffle_options"`
+	AllowMultiple    bool     `json:"allow_multiple"`
 	AllowedCountries []string `json:"allowed_countries"`
 	EndsAt           string   `json:"ends_at"`
 	Visibility       string   `json:"visibility"`
@@ -36,6 +37,8 @@ type createQuizRequest struct {
 	Answers          []createQuizAnswerReq `json:"answers"`
 	AllowedCountries []string              `json:"allowed_countries"`
 	EndsAt           string                `json:"ends_at"`
+	Visibility       string                `json:"visibility"`
+	AllowMultiple    bool                  `json:"allow_multiple"`
 }
 
 type createQuizAnswerReq struct {
@@ -44,11 +47,13 @@ type createQuizAnswerReq struct {
 }
 
 type votePollRequest struct {
-	OptionID string `json:"option_id"`
+	OptionID  string   `json:"option_id"`
+	OptionIDs []string `json:"option_ids"`
 }
 
 type submitQuizAnswerRequest struct {
-	AnswerID string `json:"answer_id"`
+	AnswerID  string   `json:"answer_id"`
+	AnswerIDs []string `json:"answer_ids"`
 }
 
 type createShareLinkRequest struct {
@@ -120,6 +125,7 @@ func (r createPollRequest) toInput(ownerUserID int64, ownerTelegramID int64, own
 		OwnerKeyHash:     ownerKeyHash,
 		IsAnonymous:      r.IsAnonymous,
 		ShuffleOptions:   r.ShuffleOptions,
+		AllowMultiple:    r.AllowMultiple,
 		AllowedCountries: allowedCountries,
 		EndsAt:           endsAt,
 		Visibility:       visibility,
@@ -182,14 +188,24 @@ func (r createQuizRequest) toInput(ownerUserID int64, ownerKeyHash string) (stor
 	if len(answers) > 20 {
 		return store.QuizInput{}, errors.New("В викторине может быть не больше 20 вариантов ответа.")
 	}
-	if correctCount != 1 {
-		return store.QuizInput{}, errors.New("Отметьте ровно один правильный ответ.")
+	if r.AllowMultiple {
+		if correctCount < 1 {
+			return store.QuizInput{}, errors.New("Отметьте хотя бы один правильный ответ.")
+		}
+	} else {
+		if correctCount != 1 {
+			return store.QuizInput{}, errors.New("Отметьте ровно один правильный ответ.")
+		}
 	}
 	allowedCountries, err := normalizeCountries(r.AllowedCountries)
 	if err != nil {
 		return store.QuizInput{}, err
 	}
 	endsAt, err := parseEndsAt(r.EndsAt)
+	if err != nil {
+		return store.QuizInput{}, err
+	}
+	visibility, err := normalizeVisibility(r.Visibility)
 	if err != nil {
 		return store.QuizInput{}, err
 	}
@@ -201,6 +217,8 @@ func (r createQuizRequest) toInput(ownerUserID int64, ownerKeyHash string) (stor
 		OwnerKeyHash:     ownerKeyHash,
 		AllowedCountries: allowedCountries,
 		EndsAt:           endsAt,
+		Visibility:       visibility,
+		AllowMultiple:    r.AllowMultiple,
 		Questions: []store.QuizQuestionInput{{
 			Text:    questionText,
 			Answers: answers,

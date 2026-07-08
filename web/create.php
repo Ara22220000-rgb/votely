@@ -133,22 +133,28 @@ if (isset($_COOKIE['votely_theme'])) {
                         <div class="creator-form__section-head">
                             <h2 class="creator-form__subtitle">Доступ</h2>
                         </div>
-                        <div class="privacy-options" role="radiogroup" aria-label="Доступ к опросу">
-                            <label class="privacy-option">
-                                <input type="radio" name="visibility" value="public" checked>
-                                <span>
-                                    <strong>Публичный</strong>
-                                    <small>Показывается в общем списке и поиске</small>
-                                </span>
-                            </label>
-                            <label class="privacy-option">
-                                <input type="radio" name="visibility" value="private">
-                                <span>
-                                    <strong>Приватный</strong>
-                                    <small>Открывается только по прямой ссылке владельца</small>
-                                </span>
-                            </label>
+                        <label class="toggle-row toggle-row--full">
+                            <input type="checkbox" name="is_private">
+                            <span class="toggle-switch__track"></span>
+                            <span class="toggle-switch__label">
+                                <strong>Приватный</strong>
+                                <small>Опрос доступен только по прямой ссылке</small>
+                            </span>
+                        </label>
+                    </div>
+
+                    <div class="creator-form__section" data-poll-fields>
+                        <div class="creator-form__section-head">
+                            <h2 class="creator-form__subtitle">Режим голосования</h2>
                         </div>
+                        <label class="toggle-row toggle-row--full">
+                            <input type="checkbox" name="allow_multiple">
+                            <span class="toggle-switch__track"></span>
+                            <span class="toggle-switch__label">
+                                <strong>Несколько вариантов</strong>
+                                <small>Разрешить выбирать несколько ответов одновременно</small>
+                            </span>
+                        </label>
                     </div>
 
                     <div class="creator-form__section" data-poll-fields>
@@ -157,6 +163,34 @@ if (isset($_COOKIE['votely_theme'])) {
                             <button class="ghost-button" type="button" data-add-option>Добавить вариант ответа</button>
                         </div>
                         <div class="stack" data-options-list></div>
+                    </div>
+
+                    <div class="creator-form__section" data-quiz-fields hidden>
+                        <div class="creator-form__section-head">
+                            <h2 class="creator-form__subtitle">Доступ</h2>
+                        </div>
+                        <label class="toggle-row toggle-row--full">
+                            <input type="checkbox" name="is_private">
+                            <span class="toggle-switch__track"></span>
+                            <span class="toggle-switch__label">
+                                <strong>Приватная</strong>
+                                <small>Викторина доступна только по прямой ссылке</small>
+                            </span>
+                        </label>
+                    </div>
+
+                    <div class="creator-form__section" data-quiz-fields hidden>
+                        <div class="creator-form__section-head">
+                            <h2 class="creator-form__subtitle">Режим ответа</h2>
+                        </div>
+                        <label class="toggle-row toggle-row--full">
+                            <input type="checkbox" name="allow_multiple">
+                            <span class="toggle-switch__track"></span>
+                            <span class="toggle-switch__label">
+                                <strong>Несколько ответов</strong>
+                                <small>Разрешить выбирать несколько вариантов ответа</small>
+                            </span>
+                        </label>
                     </div>
 
                     <div class="creator-form__section" data-quiz-fields hidden>

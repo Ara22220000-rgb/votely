@@ -75,6 +75,7 @@ func NewServer(cfg ServerConfig) *http.Server {
 	mux.HandleFunc("POST /api/v1/quizzes", api.createQuiz)
 	mux.HandleFunc("GET /api/v1/quizzes/{id}", api.getQuiz)
 	mux.HandleFunc("POST /api/v1/quizzes/{id}/answers", api.submitQuizAnswer)
+	mux.HandleFunc("GET /api/v1/quizzes/{id}/stats", api.quizStats)
 	mux.HandleFunc("DELETE /api/v1/quizzes/{id}", api.adminOnly(api.deleteQuiz, true))
 	mux.HandleFunc("GET /api/v1/auth/me", api.authMe)
 	mux.HandleFunc("GET /api/v1/auth/telegram/config", api.telegramConfig)
@@ -274,9 +275,20 @@ func (s *apiServer) votePoll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
 		return
 	}
-	if !uuidPattern.MatchString(req.OptionID) {
+	// Поддерживаем как option_id (один), так и option_ids (массив)
+	optionIDs := req.OptionIDs
+	if len(optionIDs) == 0 && req.OptionID != "" {
+		optionIDs = []string{req.OptionID}
+	}
+	if len(optionIDs) == 0 {
 		writeError(w, http.StatusBadRequest, "invalid_option", "Выберите вариант ответа.")
 		return
+	}
+	for _, optID := range optionIDs {
+		if !uuidPattern.MatchString(optID) {
+			writeError(w, http.StatusBadRequest, "invalid_option", "Некорректный ID варианта.")
+			return
+		}
 	}
 	identity, err := s.voteIdentity(w, r)
 	if err != nil {
@@ -284,7 +296,7 @@ func (s *apiServer) votePoll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось проверить голос.")
 		return
 	}
-	result, err := s.store.VotePoll(r.Context(), id, req.OptionID, identity)
+	result, err := s.store.VotePoll(r.Context(), id, optionIDs, identity)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Вариант не найден.")
 		return
@@ -306,12 +318,11 @@ func (s *apiServer) votePoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-
 		s.logger.Error("vote poll failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось сохранить голос.")
 		return
 	}
-	s.recordTrafficEvent(r, "vote", id, req.OptionID)
+	s.recordTrafficEvent(r, "vote", id, optionIDs[0])
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -703,8 +714,23 @@ func (s *apiServer) getQuiz(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
 		return
 	}
+	ownerKeyHash := s.ownerKeyHash(r)
 	userID := s.sessionUserID(r)
-	quiz, err := s.store.GetQuiz(r.Context(), id, userID)
+	visible, _, err := s.store.QuizAccess(r.Context(), id, ownerKeyHash, userID, isAdminUser(userID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "not_found", "Викторина не найдена.")
+		return
+	}
+	if err != nil {
+		s.logger.Error("quiz access failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось проверить доступ.")
+		return
+	}
+	if !visible {
+		writeError(w, http.StatusForbidden, "forbidden", "Викторина доступна только по приватной ссылке.")
+		return
+	}
+	quiz, err := s.store.GetQuiz(r.Context(), id, userID, ownerKeyHash, isAdminUser(userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Викторина не найдена.")
 		return
@@ -733,11 +759,21 @@ func (s *apiServer) submitQuizAnswer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
 		return
 	}
-	if !uuidPattern.MatchString(req.AnswerID) {
+	answerIDs := req.AnswerIDs
+	if len(answerIDs) == 0 && req.AnswerID != "" {
+		answerIDs = []string{req.AnswerID}
+	}
+	if len(answerIDs) == 0 {
 		writeError(w, http.StatusBadRequest, "invalid_answer", "Выберите вариант ответа.")
 		return
 	}
-	result, err := s.store.SubmitQuizAnswer(r.Context(), id, req.AnswerID, userID)
+	for _, ansID := range answerIDs {
+		if !uuidPattern.MatchString(ansID) {
+			writeError(w, http.StatusBadRequest, "invalid_answer", "Некорректный ID ответа.")
+			return
+		}
+	}
+	result, err := s.store.SubmitQuizAnswer(r.Context(), id, answerIDs, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Вариант не найден.")
 		return
@@ -752,6 +788,28 @@ func (s *apiServer) submitQuizAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *apiServer) quizStats(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !uuidPattern.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
+		return
+	}
+	ownerKeyHash := s.ownerKeyHash(r)
+	userID := s.sessionUserID(r)
+
+	stats, err := s.store.QuizStats(r.Context(), id, ownerKeyHash, userID, isAdminUser(userID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusForbidden, "forbidden", "Статистика доступна владельцу викторины.")
+		return
+	}
+	if err != nil {
+		s.logger.Error("quiz stats failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить статистику.")
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
 }
 
 type sqlRequest struct {

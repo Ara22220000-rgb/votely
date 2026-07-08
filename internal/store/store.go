@@ -137,6 +137,7 @@ type PollInput struct {
 	OwnerKeyHash     string
 	IsAnonymous      bool
 	ShuffleOptions   bool
+	AllowMultiple    bool
 	AllowedCountries []string
 	EndsAt           *time.Time
 	Visibility       string
@@ -150,6 +151,8 @@ type QuizInput struct {
 	OwnerKeyHash     string
 	AllowedCountries []string
 	EndsAt           *time.Time
+	Visibility       string
+	AllowMultiple    bool
 }
 
 type QuizQuestionInput struct {
@@ -181,9 +184,11 @@ type PollDetail struct {
 	Description      string       `json:"description"`
 	Options          []OptionItem `json:"options"`
 	SelectedOptionID string       `json:"selected_option_id,omitempty"`
+	SelectedOptionIDs []string    `json:"selected_option_ids,omitempty"`
 	IsOwner          bool         `json:"is_owner"`
 	IsAnonymous      bool         `json:"is_anonymous"`
 	ShuffleOptions   bool         `json:"shuffle_options"`
+	AllowMultiple    bool         `json:"allow_multiple"`
 	AllowedCountries []string     `json:"allowed_countries"`
 	EndsAt           string       `json:"ends_at,omitempty"`
 	ClosedAt         string       `json:"closed_at,omitempty"`
@@ -198,6 +203,9 @@ type QuizDetail struct {
 	Question         string       `json:"question"`
 	Answers          []AnswerItem `json:"answers"`
 	SelectedAnswerID string       `json:"selected_answer_id,omitempty"`
+	IsOwner          bool         `json:"is_owner"`
+	Visibility       string       `json:"visibility"`
+	AllowMultiple    bool         `json:"allow_multiple"`
 }
 
 type OptionItem struct {
@@ -215,8 +223,9 @@ type AnswerItem struct {
 }
 
 type VoteResult struct {
-	Options          []OptionItem `json:"options"`
-	SelectedOptionID string       `json:"selected_option_id,omitempty"`
+	Options           []OptionItem `json:"options"`
+	SelectedOptionID  string       `json:"selected_option_id,omitempty"`
+	SelectedOptionIDs []string     `json:"selected_option_ids,omitempty"`
 }
 
 type QuizSubmitResult struct {
@@ -224,6 +233,13 @@ type QuizSubmitResult struct {
 	SelectedAnswerID string       `json:"selected_answer_id"`
 	IsCorrect        bool         `json:"is_correct"`
 	TotalAttempts    int          `json:"total_attempts"`
+}
+
+type QuizStats struct {
+	Quiz          QuizDetail    `json:"quiz"`
+	Answers       []OptionStats `json:"answers"`
+	TotalAttempts int           `json:"total_attempts"`
+	Analytics     PollAnalytics `json:"analytics"`
 }
 
 type SQLResult struct {
@@ -320,8 +336,8 @@ func (s *Store) CreatePoll(ctx context.Context, input PollInput) (CreatedEntity,
 	var id string
 	if err := tx.QueryRow(ctx,
 
-		`INSERT INTO polls (title, description, owner_user_id, owner_telegram_id, owner_key_hash, is_anonymous, shuffle_options, allowed_countries, ends_at, visibility)
-		VALUES ($1, $2, nullif($3::bigint, 0), nullif($4::bigint, 0), $5, $6, $7, $8, $9, $10) RETURNING id`,
+	`INSERT INTO polls (title, description, owner_user_id, owner_telegram_id, owner_key_hash, is_anonymous, shuffle_options, allow_multiple, allowed_countries, ends_at, visibility)
+		VALUES ($1, $2, nullif($3::bigint, 0), nullif($4::bigint, 0), $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
 		strings.TrimSpace(input.Title),
 		strings.TrimSpace(input.Description),
 		input.OwnerUserID,
@@ -329,6 +345,7 @@ func (s *Store) CreatePoll(ctx context.Context, input PollInput) (CreatedEntity,
 		input.OwnerKeyHash,
 		input.IsAnonymous,
 		input.ShuffleOptions,
+		input.AllowMultiple,
 		input.AllowedCountries,
 		input.EndsAt,
 		input.Visibility,
@@ -386,14 +403,16 @@ func (s *Store) CreateQuiz(ctx context.Context, input QuizInput) (CreatedEntity,
 	var quizID string
 	if err := tx.QueryRow(ctx,
 
-		`INSERT INTO quizzes (title, description, owner_user_id, owner_key_hash, allowed_countries, ends_at)
-		VALUES ($1, $2, nullif($3::bigint, 0), nullif($4, ''), $5, $6) RETURNING id`,
+		`INSERT INTO quizzes (title, description, owner_user_id, owner_key_hash, allowed_countries, ends_at, visibility, allow_multiple)
+		VALUES ($1, $2, nullif($3::bigint, 0), nullif($4, ''), $5, $6, $7, $8) RETURNING id`,
 		strings.TrimSpace(input.Title),
 		strings.TrimSpace(input.Description),
 		input.OwnerUserID,
 		input.OwnerKeyHash,
 		input.AllowedCountries,
 		input.EndsAt,
+		input.Visibility,
+		input.AllowMultiple,
 	).Scan(&quizID); err != nil {
 		return CreatedEntity{}, err
 	}
@@ -461,7 +480,7 @@ func escapeLike(value string) string {
 func (s *Store) ListQuizzes(ctx context.Context, query string) ([]ListItem, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		rows, err := s.db.Query(ctx, `SELECT id::text, title, description, created_at::text FROM quizzes ORDER BY created_at DESC LIMIT 100`)
+		rows, err := s.db.Query(ctx, `SELECT id::text, title, description, created_at::text FROM quizzes WHERE visibility = 'public' ORDER BY created_at DESC LIMIT 100`)
 		if err != nil {
 			return nil, err
 		}
@@ -473,7 +492,7 @@ func (s *Store) ListQuizzes(ctx context.Context, query string) ([]ListItem, erro
 	rows, err := s.db.Query(ctx, `
 		SELECT id::text, title, description, created_at::text
 		FROM quizzes
-		WHERE title ILIKE $1 ESCAPE '\' OR description ILIKE $1 ESCAPE '\'
+		WHERE visibility = 'public' AND (title ILIKE $1 ESCAPE '\' OR description ILIKE $1 ESCAPE '\')
 		ORDER BY created_at DESC
 		LIMIT 100`, pattern)
 	if err != nil {
@@ -556,12 +575,12 @@ func (s *Store) GetPoll(ctx context.Context, id string, userID int64, ownerKeyHa
 	var endsAt sql.NullString
 	var closedAt sql.NullString
 	if err := s.db.QueryRow(ctx, `
-		SELECT id::text, title, description, is_anonymous, shuffle_options, allowed_countries, ends_at::text, closed_at::text, visibility,
+		SELECT id::text, title, description, is_anonymous, shuffle_options, allow_multiple, allowed_countries, ends_at::text, closed_at::text, visibility,
 			(closed_at IS NOT NULL OR (ends_at IS NOT NULL AND ends_at <= now())),
 			COALESCE(owner_key_hash = nullif($2, ''), false) OR ($3::bigint <> 0 AND (owner_user_id = $3 OR owner_telegram_id = $3)) OR $4::boolean
 		FROM polls WHERE id = $1`,
 		id, ownerKeyHash, userID, isAdmin,
-	).Scan(&poll.ID, &poll.Title, &poll.Description, &poll.IsAnonymous, &poll.ShuffleOptions, &poll.AllowedCountries, &endsAt, &closedAt, &poll.Visibility, &poll.IsClosed, &poll.IsOwner); err != nil {
+	).Scan(&poll.ID, &poll.Title, &poll.Description, &poll.IsAnonymous, &poll.ShuffleOptions, &poll.AllowMultiple, &poll.AllowedCountries, &endsAt, &closedAt, &poll.Visibility, &poll.IsClosed, &poll.IsOwner); err != nil {
 		return PollDetail{}, err
 	}
 	if endsAt.Valid {
@@ -596,42 +615,54 @@ func (s *Store) GetPoll(ctx context.Context, id string, userID int64, ownerKeyHa
 		return PollDetail{}, err
 	}
 	if userID != 0 {
-		_ = s.db.QueryRow(ctx, `
-			SELECT option_id::text
-			FROM poll_votes
-			WHERE poll_id = $1 AND telegram_user_id = $2
-			LIMIT 1`, id, userID).Scan(&poll.SelectedOptionID)
+		if poll.AllowMultiple {
+			// Для множественного выбора получаем все выбранные варианты
+			optionRows, err := s.db.Query(ctx, `
+				SELECT option_id::text
+				FROM poll_votes
+				WHERE poll_id = $1 AND telegram_user_id = $2`, id, userID)
+			if err == nil {
+				defer optionRows.Close()
+				for optionRows.Next() {
+					var optID string
+					if err := optionRows.Scan(&optID); err == nil {
+						poll.SelectedOptionIDs = append(poll.SelectedOptionIDs, optID)
+					}
+				}
+			}
+		} else {
+			_ = s.db.QueryRow(ctx, `
+				SELECT option_id::text
+				FROM poll_votes
+				WHERE poll_id = $1 AND telegram_user_id = $2
+				LIMIT 1`, id, userID).Scan(&poll.SelectedOptionID)
+		}
 	}
 	return poll, nil
 }
 
-func (s *Store) VotePoll(ctx context.Context, pollID, optionID string, identity VoteIdentity) (VoteResult, error) {
+func (s *Store) VotePoll(ctx context.Context, pollID string, optionIDs []string, identity VoteIdentity) (VoteResult, error) {
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return VoteResult{}, err
 	}
 	defer rollback(ctx, tx)
 
-	var exists bool
+	// Проверяем, что опрос существует и не закрыт
 	var isClosed bool
+	var allowMultiple bool
 	var allowedCountries []string
 	var ownerID sql.NullInt64
 	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM poll_options WHERE poll_id = $1 AND id = $2),
-			(p.closed_at IS NOT NULL OR (p.ends_at IS NOT NULL AND p.ends_at <= now())),
-			p.allowed_countries,
-			COALESCE(p.owner_telegram_id, p.owner_user_id)
+		SELECT (p.closed_at IS NOT NULL OR (p.ends_at IS NOT NULL AND p.ends_at <= now())),
+			p.allow_multiple, p.allowed_countries, COALESCE(p.owner_telegram_id, p.owner_user_id)
 		FROM polls p
 		WHERE p.id = $1`,
 		pollID,
-		optionID,
-	).Scan(&exists, &isClosed, &allowedCountries, &ownerID); err != nil {
+	).Scan(&isClosed, &allowMultiple, &allowedCountries, &ownerID); err != nil {
 		return VoteResult{}, err
 	}
 
-	if !exists {
-		return VoteResult{}, pgx.ErrNoRows
-	}
 	if isClosed {
 		return VoteResult{}, ErrPollClosed
 	}
@@ -654,73 +685,85 @@ func (s *Store) VotePoll(ctx context.Context, pollID, optionID string, identity 
 		}
 	}
 
-	var voteID string
+	// Проверяем, что все варианты существуют
+	for _, optionID := range optionIDs {
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM poll_options WHERE poll_id = $1 AND id = $2)`, pollID, optionID).Scan(&exists); err != nil {
+			return VoteResult{}, err
+		}
+		if !exists {
+			return VoteResult{}, pgx.ErrNoRows
+		}
+	}
 
-	// Приоритет проверки: telegram_user_id > voter_token_hash > ip_hash > device_hash
-	// Вставляем только один идентификатор за раз, чтобы избежать конфликтов по нескольким уникальным индексам
+	// Проверяем, не голосовал ли пользователь уже (любой голос в этом опросе)
+	var alreadyVoted bool
 	if identity.TelegramUserID != 0 {
-		if err := tx.QueryRow(ctx, `
-			INSERT INTO poll_votes (poll_id, option_id, telegram_user_id)
-			VALUES ($1, $2, $3)
-			ON CONFLICT (poll_id, telegram_user_id) WHERE telegram_user_id IS NOT NULL DO NOTHING
-			RETURNING id::text`,
-			pollID, optionID, identity.TelegramUserID,
-		).Scan(&voteID); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return VoteResult{}, ErrDuplicateVote
-			}
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM poll_votes WHERE poll_id = $1 AND telegram_user_id = $2)`, pollID, identity.TelegramUserID).Scan(&alreadyVoted); err != nil {
 			return VoteResult{}, err
 		}
 	} else if identity.VoterTokenHash != "" {
-		if err := tx.QueryRow(ctx, `
-			INSERT INTO poll_votes (poll_id, option_id, voter_token_hash)
-			VALUES ($1, $2, $3)
-			ON CONFLICT (poll_id, voter_token_hash) WHERE voter_token_hash IS NOT NULL DO NOTHING
-			RETURNING id::text`,
-			pollID, optionID, identity.VoterTokenHash,
-		).Scan(&voteID); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return VoteResult{}, ErrDuplicateVote
-			}
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM poll_votes WHERE poll_id = $1 AND voter_token_hash = $2)`, pollID, identity.VoterTokenHash).Scan(&alreadyVoted); err != nil {
 			return VoteResult{}, err
 		}
 	} else if identity.IPHash != "" {
-		if err := tx.QueryRow(ctx, `
-			INSERT INTO poll_votes (poll_id, option_id, ip_hash)
-			VALUES ($1, $2, $3)
-			ON CONFLICT (poll_id, ip_hash) WHERE ip_hash IS NOT NULL DO NOTHING
-			RETURNING id::text`,
-			pollID, optionID, identity.IPHash,
-		).Scan(&voteID); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return VoteResult{}, ErrDuplicateVote
-			}
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM poll_votes WHERE poll_id = $1 AND ip_hash = $2)`, pollID, identity.IPHash).Scan(&alreadyVoted); err != nil {
 			return VoteResult{}, err
 		}
 	} else if identity.DeviceHash != "" {
-		if err := tx.QueryRow(ctx, `
-			INSERT INTO poll_votes (poll_id, option_id, device_hash)
-			VALUES ($1, $2, $3)
-			ON CONFLICT (poll_id, device_hash) WHERE device_hash IS NOT NULL DO NOTHING
-			RETURNING id::text`,
-			pollID, optionID, identity.DeviceHash,
-		).Scan(&voteID); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return VoteResult{}, ErrDuplicateVote
-			}
-			return VoteResult{}, err
-		}
-	} else {
-		// Если нет идентификаторов, разрешаем голосовать без защиты от повтора
-		if err := tx.QueryRow(ctx, `
-			INSERT INTO poll_votes (poll_id, option_id)
-			VALUES ($1, $2)
-			RETURNING id::text`,
-			pollID, optionID,
-		).Scan(&voteID); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM poll_votes WHERE poll_id = $1 AND device_hash = $2)`, pollID, identity.DeviceHash).Scan(&alreadyVoted); err != nil {
 			return VoteResult{}, err
 		}
 	}
+	if alreadyVoted {
+		return VoteResult{}, ErrDuplicateVote
+	}
+
+	// Вставляем голоса для всех выбранных вариантов
+	for _, optionID := range optionIDs {
+		if identity.TelegramUserID != 0 {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO poll_votes (poll_id, option_id, telegram_user_id)
+				VALUES ($1, $2, $3)`,
+				pollID, optionID, identity.TelegramUserID,
+			); err != nil {
+				return VoteResult{}, err
+			}
+		} else if identity.VoterTokenHash != "" {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO poll_votes (poll_id, option_id, voter_token_hash)
+				VALUES ($1, $2, $3)`,
+				pollID, optionID, identity.VoterTokenHash,
+			); err != nil {
+				return VoteResult{}, err
+			}
+		} else if identity.IPHash != "" {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO poll_votes (poll_id, option_id, ip_hash)
+				VALUES ($1, $2, $3)`,
+				pollID, optionID, identity.IPHash,
+			); err != nil {
+				return VoteResult{}, err
+			}
+		} else if identity.DeviceHash != "" {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO poll_votes (poll_id, option_id, device_hash)
+				VALUES ($1, $2, $3)`,
+				pollID, optionID, identity.DeviceHash,
+			); err != nil {
+				return VoteResult{}, err
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO poll_votes (poll_id, option_id)
+				VALUES ($1, $2)`,
+				pollID, optionID,
+			); err != nil {
+				return VoteResult{}, err
+			}
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return VoteResult{}, err
 	}
@@ -729,7 +772,13 @@ func (s *Store) VotePoll(ctx context.Context, pollID, optionID string, identity 
 	if err != nil {
 		return VoteResult{}, err
 	}
-	return VoteResult{Options: poll.Options, SelectedOptionID: poll.SelectedOptionID}, nil
+	result := VoteResult{Options: poll.Options}
+	if allowMultiple {
+		result.SelectedOptionIDs = poll.SelectedOptionIDs
+	} else {
+		result.SelectedOptionID = poll.SelectedOptionID
+	}
+	return result, nil
 }
 
 func countryAllowed(country string, allowed []string) bool {
@@ -1138,16 +1187,17 @@ func (s *Store) SessionUserID(ctx context.Context, tokenHash string) (int64, err
 	return userID, nil
 }
 
-func (s *Store) GetQuiz(ctx context.Context, id string, userID int64) (QuizDetail, error) {
+func (s *Store) GetQuiz(ctx context.Context, id string, userID int64, ownerKeyHash string, isAdmin bool) (QuizDetail, error) {
 	var quiz QuizDetail
 	var questionID string
 	if err := s.db.QueryRow(ctx, `
-		SELECT q.id::text, q.title, q.description, qq.id::text, qq.question_text
+		SELECT q.id::text, q.title, q.description, qq.id::text, qq.question_text, q.visibility, q.allow_multiple,
+			COALESCE(q.owner_key_hash = nullif($2, ''), false) OR ($3::bigint <> 0 AND q.owner_user_id = $3) OR $4::boolean
 		FROM quizzes q
 		JOIN quiz_questions qq ON qq.quiz_id = q.id
 		WHERE q.id = $1
 		ORDER BY qq.position
-		LIMIT 1`, id).Scan(&quiz.ID, &quiz.Title, &quiz.Description, &questionID, &quiz.Question); err != nil {
+		LIMIT 1`, id, ownerKeyHash, userID, isAdmin).Scan(&quiz.ID, &quiz.Title, &quiz.Description, &questionID, &quiz.Question, &quiz.Visibility, &quiz.AllowMultiple, &quiz.IsOwner); err != nil {
 		return QuizDetail{}, err
 	}
 	rows, err := s.db.Query(ctx, `SELECT id::text, answer_text, false FROM quiz_answers WHERE question_id = $1 ORDER BY position`, questionID)
@@ -1175,54 +1225,77 @@ func (s *Store) GetQuiz(ctx context.Context, id string, userID int64) (QuizDetai
 	return quiz, rows.Err()
 }
 
-func (s *Store) SubmitQuizAnswer(ctx context.Context, quizID, answerID string, userID int64) (QuizSubmitResult, error) {
+func (s *Store) SubmitQuizAnswer(ctx context.Context, quizID string, answerIDs []string, userID int64) (QuizSubmitResult, error) {
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return QuizSubmitResult{}, err
 	}
 	defer rollback(ctx, tx)
 
-	var questionID string
-	var isCorrect bool
+	// Проверяем, не отвечал ли уже пользователь
+	var alreadyAttempted bool
 	if err := tx.QueryRow(ctx, `
-		SELECT qq.id::text, qa.is_correct
-		FROM quizzes q
-		JOIN quiz_questions qq ON qq.quiz_id = q.id
-		JOIN quiz_answers qa ON qa.question_id = qq.id
-		WHERE q.id = $1 AND qa.id = $2
-		ORDER BY qq.position
-		LIMIT 1`,
-		quizID,
-		answerID,
-	).Scan(&questionID, &isCorrect); err != nil {
+		SELECT EXISTS (SELECT 1 FROM quiz_attempts WHERE quiz_id = $1 AND telegram_user_id = $2)`,
+		quizID, userID).Scan(&alreadyAttempted); err != nil {
 		return QuizSubmitResult{}, err
+	}
+	if alreadyAttempted {
+		return QuizSubmitResult{}, ErrDuplicateVote
 	}
 
-	var attemptID string
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO quiz_attempts (quiz_id, question_id, answer_id, telegram_user_id, is_correct)
-		VALUES ($1, $2, $3, nullif($4::bigint, 0), $5)
-		ON CONFLICT (quiz_id, telegram_user_id) WHERE telegram_user_id IS NOT NULL DO NOTHING
-		RETURNING id::text`,
-		quizID,
-		questionID,
-		answerID,
-		userID,
-		isCorrect,
-	).Scan(&attemptID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return QuizSubmitResult{}, ErrDuplicateVote
-		}
-		return QuizSubmitResult{}, err
+	// Получаем информацию о каждом ответе
+	type answerInfo struct {
+		questionID string
+		isCorrect  bool
 	}
+	answers := make([]answerInfo, 0, len(answerIDs))
+	anyCorrect := false
+	for _, answerID := range answerIDs {
+		var questionID string
+		var isCorrect bool
+		if err := tx.QueryRow(ctx, `
+			SELECT qq.id::text, qa.is_correct
+			FROM quizzes q
+			JOIN quiz_questions qq ON qq.quiz_id = q.id
+			JOIN quiz_answers qa ON qa.question_id = qq.id
+			WHERE q.id = $1 AND qa.id = $2
+			ORDER BY qq.position
+			LIMIT 1`,
+			quizID,
+			answerID,
+		).Scan(&questionID, &isCorrect); err != nil {
+			return QuizSubmitResult{}, err
+		}
+		answers = append(answers, answerInfo{questionID: questionID, isCorrect: isCorrect})
+		if isCorrect {
+			anyCorrect = true
+		}
+	}
+
+	// Вставляем попытки для всех выбранных ответов
+	for i, a := range answers {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO quiz_attempts (quiz_id, question_id, answer_id, telegram_user_id, is_correct)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (quiz_id, telegram_user_id, answer_id) WHERE telegram_user_id IS NOT NULL DO NOTHING`,
+			quizID,
+			a.questionID,
+			answerIDs[i],
+			userID,
+			a.isCorrect,
+		); err != nil {
+			return QuizSubmitResult{}, err
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return QuizSubmitResult{}, err
 	}
 
-	return s.QuizResults(ctx, quizID, answerID, isCorrect)
+	return s.QuizResults(ctx, quizID, answerIDs, anyCorrect)
 }
 
-func (s *Store) QuizResults(ctx context.Context, quizID, selectedAnswerID string, selectedCorrect bool) (QuizSubmitResult, error) {
+func (s *Store) QuizResults(ctx context.Context, quizID string, selectedAnswerIDs []string, selectedCorrect bool) (QuizSubmitResult, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT qa.id::text, qa.answer_text, qa.is_correct, count(qat.id)::int
 		FROM quiz_answers qa
@@ -1237,13 +1310,20 @@ func (s *Store) QuizResults(ctx context.Context, quizID, selectedAnswerID string
 		return QuizSubmitResult{}, err
 	}
 	defer rows.Close()
-	result := QuizSubmitResult{SelectedAnswerID: selectedAnswerID, IsCorrect: selectedCorrect}
+	result := QuizSubmitResult{IsCorrect: selectedCorrect}
+	selectedSet := make(map[string]bool, len(selectedAnswerIDs))
+	for _, id := range selectedAnswerIDs {
+		selectedSet[id] = true
+	}
 	for rows.Next() {
 		var answer AnswerItem
 		if err := rows.Scan(&answer.ID, &answer.Text, &answer.IsCorrect, &answer.Attempts); err != nil {
 			return QuizSubmitResult{}, err
 		}
 		result.TotalAttempts += answer.Attempts
+		if selectedSet[answer.ID] {
+			result.SelectedAnswerID = answer.ID
+		}
 		result.Answers = append(result.Answers, answer)
 	}
 	if err := rows.Err(); err != nil {
@@ -1255,6 +1335,194 @@ func (s *Store) QuizResults(ctx context.Context, quizID, selectedAnswerID string
 		}
 	}
 	return result, nil
+}
+
+func (s *Store) QuizAccess(ctx context.Context, quizID, ownerKeyHash string, userID int64, admin bool) (visible bool, owner bool, err error) {
+	err = s.db.QueryRow(ctx, `
+		SELECT
+			visibility = 'public'
+				OR coalesce(owner_key_hash = nullif($2, ''), false)
+				OR ($3::bigint <> 0 AND q.owner_user_id = $3)
+				OR $4::boolean,
+			coalesce(owner_key_hash = nullif($2, ''), false)
+				OR ($3::bigint <> 0 AND q.owner_user_id = $3)
+				OR $4::boolean
+		FROM quizzes q
+		WHERE q.id = $1`,
+		quizID,
+		ownerKeyHash,
+		userID,
+		admin,
+	).Scan(&visible, &owner)
+	return visible, owner, err
+}
+
+func (s *Store) QuizStats(ctx context.Context, quizID, ownerKeyHash string, userID int64, admin bool) (QuizStats, error) {
+	var allowed bool
+	if err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM quizzes
+			WHERE id = $1 AND (
+				owner_key_hash = nullif($2, '')
+				OR ($3::bigint <> 0 AND owner_user_id = $3)
+				OR $4::boolean
+			)
+		)`,
+		quizID,
+		ownerKeyHash,
+		userID,
+		admin,
+	).Scan(&allowed); err != nil {
+		return QuizStats{}, err
+	}
+	if !allowed {
+		return QuizStats{}, pgx.ErrNoRows
+	}
+
+	quiz, err := s.GetQuiz(ctx, quizID, userID, ownerKeyHash, admin)
+	if err != nil {
+		return QuizStats{}, err
+	}
+	stats := QuizStats{Quiz: quiz, Answers: make([]OptionStats, 0, len(quiz.Answers)), Analytics: PollAnalytics{}}
+	for _, answer := range quiz.Answers {
+		stats.TotalAttempts += answer.Attempts
+	}
+	for _, answer := range quiz.Answers {
+		percent := 0
+		if stats.TotalAttempts > 0 {
+			percent = int(float64(answer.Attempts) / float64(stats.TotalAttempts) * 100)
+		}
+		stats.Answers = append(stats.Answers, OptionStats{ID: answer.ID, Text: answer.Text, Votes: answer.Attempts, Percent: percent})
+	}
+
+	rows, err := s.db.Query(ctx, `
+		SELECT 'browser' as type, COALESCE(NULLIF(split_part(split_part(user_agent, ' ', 1), '/', 1), ''), 'Other') as name, COUNT(*) as count
+		FROM quiz_attempts qa
+		WHERE qa.quiz_id = $1
+		GROUP BY type, name
+		ORDER BY count DESC`,
+		quizID,
+	)
+	if err != nil {
+		return QuizStats{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemType, name string
+		var count int
+		if err := rows.Scan(&itemType, &name, &count); err != nil {
+			return QuizStats{}, err
+		}
+		stats.Analytics.Browsers = append(stats.Analytics.Browsers, AnalyticsItem{Name: name, Count: count})
+	}
+	rows.Close()
+
+	rows, err = s.db.Query(ctx, `
+		SELECT 'os' as type, 
+			CASE 
+				WHEN user_agent LIKE '%iPhone%' OR user_agent LIKE '%iPad%' THEN 'iOS'
+				WHEN user_agent LIKE '%Android%' THEN 'Android'
+				WHEN user_agent LIKE '%Windows%' THEN 'Windows'
+				WHEN user_agent LIKE '%Mac%' OR user_agent LIKE '%OS X%' THEN 'macOS'
+				WHEN user_agent LIKE '%Linux%' THEN 'Linux'
+				ELSE 'Other'
+			END as name, 
+			COUNT(*) as count
+		FROM quiz_attempts qa
+		WHERE qa.quiz_id = $1
+		GROUP BY type, name
+		ORDER BY count DESC`,
+		quizID,
+	)
+	if err != nil {
+		return QuizStats{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemType, name string
+		var count int
+		if err := rows.Scan(&itemType, &name, &count); err != nil {
+			return QuizStats{}, err
+		}
+		stats.Analytics.OS = append(stats.Analytics.OS, AnalyticsItem{Name: name, Count: count})
+	}
+	rows.Close()
+
+	rows, err = s.db.Query(ctx, `
+		SELECT 'device' as type,
+			CASE
+				WHEN user_agent LIKE '%Mobile%' AND user_agent NOT LIKE '%iPad%' THEN 'mobile'
+				WHEN user_agent LIKE '%iPad%' OR user_agent LIKE '%Tablet%' OR user_agent LIKE '%Android%' THEN 'tablet'
+				ELSE 'desktop'
+			END as name,
+			COUNT(*) as count
+		FROM quiz_attempts qa
+		WHERE qa.quiz_id = $1
+		GROUP BY type, name
+		ORDER BY count DESC`,
+		quizID,
+	)
+	if err != nil {
+		return QuizStats{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemType, name string
+		var count int
+		if err := rows.Scan(&itemType, &name, &count); err != nil {
+			return QuizStats{}, err
+		}
+		stats.Analytics.Devices = append(stats.Analytics.Devices, AnalyticsItem{Name: name, Count: count})
+	}
+	rows.Close()
+
+	rows, err = s.db.Query(ctx, `
+		SELECT 'location' as type, COALESCE(NULLIF(ip_country, ''), 'Unknown') as name, COUNT(*) as count
+		FROM quiz_attempts qa
+		WHERE qa.quiz_id = $1
+		GROUP BY type, name
+		ORDER BY count DESC
+		LIMIT 15`,
+		quizID,
+	)
+	if err != nil {
+		return QuizStats{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemType, name string
+		var count int
+		if err := rows.Scan(&itemType, &name, &count); err != nil {
+			return QuizStats{}, err
+		}
+		stats.Analytics.Locations = append(stats.Analytics.Locations, AnalyticsItem{Name: name, Count: count})
+	}
+	rows.Close()
+
+	rows, err = s.db.Query(ctx, `
+		SELECT 'source' as type, COALESCE(NULLIF(utm_source, ''), 'direct') as name, COUNT(*) as count
+		FROM quiz_attempts qa
+		WHERE qa.quiz_id = $1
+		GROUP BY type, name
+		ORDER BY count DESC
+		LIMIT 10`,
+		quizID,
+	)
+	if err != nil {
+		return QuizStats{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemType, name string
+		var count int
+		if err := rows.Scan(&itemType, &name, &count); err != nil {
+			return QuizStats{}, err
+		}
+		stats.Analytics.Sources = append(stats.Analytics.Sources, AnalyticsItem{Name: name, Count: count})
+	}
+	rows.Close()
+
+	return stats, nil
 }
 
 func (s *Store) DeletePoll(ctx context.Context, id string) error {

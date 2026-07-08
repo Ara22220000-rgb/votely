@@ -522,7 +522,7 @@ function initCreateForm(form) {
     const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
     document.body.dataset.contentType = type;
     const pollFields = form.querySelectorAll('[data-poll-fields]');
-    const quizFields = form.querySelector('[data-quiz-fields]');
+    const quizFields = form.querySelectorAll('[data-quiz-fields]');
     const optionsList = form.querySelector('[data-options-list]');
     const questionsList = form.querySelector('[data-questions-list]');
     const status = form.querySelector('[data-form-status]');
@@ -533,7 +533,9 @@ function initCreateForm(form) {
     pollFields.forEach((section) => {
         section.hidden = type !== 'poll';
     });
-    if (quizFields) quizFields.hidden = type !== 'quiz';
+    quizFields.forEach((section) => {
+        section.hidden = type !== 'quiz';
+    });
     const titleEl = document.querySelector('#creator-title');
     if (titleEl) titleEl.textContent = type === 'quiz' ? 'Создать викторину' : 'Создать опрос';
 
@@ -627,7 +629,8 @@ function collectPollPayload(form) {
         title: form.elements.title.value,
         description: form.elements.description.value,
         options: Array.from(form.querySelectorAll('[name="option"]')).map((input) => input.value),
-        visibility: form.elements.visibility?.value || 'public'
+        visibility: form.elements.is_private?.checked ? 'private' : 'public',
+        allow_multiple: form.elements.allow_multiple?.checked || false
     };
 }
 
@@ -636,6 +639,8 @@ function collectQuizPayload(form) {
         title: form.elements.title.value,
         description: form.elements.description.value,
         question: form.querySelector('[name="question"]').value,
+        visibility: form.querySelector('[data-quiz-fields]:not([hidden]) [name="is_private"]')?.checked ? 'private' : 'public',
+        allow_multiple: form.querySelector('[data-quiz-fields]:not([hidden]) [name="allow_multiple"]')?.checked || false,
         answers: Array.from(form.querySelectorAll('.answer-row')).map((row) => ({
             text: row.querySelector('[name="answer"]').value,
             is_correct: row.querySelector('.correct-check').checked
@@ -774,7 +779,7 @@ async function initDetailPage(root) {
     const linkSlug = params.get('link') || '';
     const container = root.querySelector('[data-detail]');
     try {
-        const detailQuery = type === 'poll' && ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+        const detailQuery = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
         const data = await apiJSON('/api/v1/' + apiCollection(type) + '/' + encodeURIComponent(id) + detailQuery);
         if (type === 'poll' && linkSlug) {
             window.sessionStorage.setItem('votely_link_' + id, linkSlug);
@@ -816,11 +821,11 @@ function renderDetail(container, data, type, id, ownerKey = '') {
         renderPollView(content, data, id);
     }
 
-    // Показываем ссылку на статистику только владельцу опроса
-    if (type === 'poll' && data.is_owner) {
+    // Показываем ссылку на статистику только владельцу
+    if (data.is_owner) {
         const statsLink = document.createElement('a');
         statsLink.className = 'primary-button';
-        const statsUrl = 'stats.php?id=' + encodeURIComponent(id) + (ownerKey ? '&owner_key=' + encodeURIComponent(ownerKey) : '');
+        const statsUrl = 'stats.php?type=' + type + '&id=' + encodeURIComponent(id) + (ownerKey ? '&owner_key=' + encodeURIComponent(ownerKey) : '');
         statsLink.href = statsUrl;
         statsLink.textContent = 'Посмотреть статистику';
         statsLink.style.marginTop = '24px';
@@ -839,12 +844,17 @@ async function renderOwnerStats(container, poll, id, ownerKey) {
 
 async function initStatsPage() {
     const params = new URLSearchParams(window.location.search);
+    const type = params.get('type') === 'quiz' ? 'quiz' : 'poll';
     const id = params.get('id') || '';
     const ownerKey = params.get('owner_key') || '';
     const title = document.querySelector('#stats-title');
     const content = document.querySelector('#stats-content');
     if (!id || !content) return;
     try {
+        if (type === 'quiz') {
+            await initQuizStatsPage(id, ownerKey, title, content);
+            return;
+        }
         const pollQuery = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
         const poll = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + pollQuery);
         const statsQuery = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
@@ -856,6 +866,72 @@ async function initStatsPage() {
     } catch (error) {
         renderMessage(content, error.message, true);
     }
+}
+
+async function initQuizStatsPage(id, ownerKey, title, content) {
+    const ownerQuery = ownerKey ? '?owner_key=' + encodeURIComponent(ownerKey) : '';
+    const quiz = await apiJSON('/api/v1/quizzes/' + encodeURIComponent(id) + ownerQuery);
+    const stats = await apiJSON('/api/v1/quizzes/' + encodeURIComponent(id) + '/stats' + ownerQuery);
+    if (title) title.textContent = quiz.title || 'Статистика';
+    const holder = document.createElement('div');
+    await renderQuizStatsBlock(holder, quiz, stats, id, ownerKey);
+    content.replaceChildren(...holder.childNodes);
+}
+
+async function renderQuizStatsBlock(container, quiz, stats, quizID = '', ownerKey = '') {
+    const header = document.createElement('div');
+    header.className = 'stats-header';
+    header.innerHTML = `
+        <div>
+            <p class="creator__eyebrow">Статистика владельца</p>
+            <h1 class="viewer__title">${escapeHtml(quiz.title)}</h1>
+            <p class="creator__subtitle" id="stats-description">${escapeHtml(quiz.description || 'Викторина без описания')}</p>
+        </div>
+        <div class="metric-box"><span>${stats.total_attempts || 0}</span><small>ответов</small></div>
+    `;
+    
+    const statsTitle = document.getElementById('stats-title');
+    const statsDesc = document.getElementById('stats-description');
+    if (statsTitle) statsTitle.textContent = quiz.title || 'Статистика';
+    if (statsDesc) statsDesc.textContent = quiz.description || '';
+    
+    const chartSection = document.createElement('section');
+    chartSection.className = 'stats-chart-section';
+    const totalAttempts = stats.total_attempts || 0;
+    const pieChart = document.createElement('div');
+    pieChart.className = 'pie-chart-large';
+    if (totalAttempts > 0) {
+        pieChart.append(buildPieSvg(stats.answers || []));
+    } else {
+        pieChart.innerHTML = '<p class="stats-empty">Ответов пока нет</p>';
+    }
+    const legend = document.createElement('div');
+    legend.className = 'stats-legend';
+    (stats.answers || []).forEach((answer, index) => {
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = `
+            <div class="legend-item__header">
+                <span class="legend-swatch" style="background:${chartColor(index)}"></span>
+                <span class="legend-text">${escapeHtml(answer.text)}</span>
+            </div>
+            <div class="legend-item__stats">
+                <strong>${answer.votes}</strong>
+                <span class="legend-percent">${answer.percent}%</span>
+            </div>
+            <div class="legend-bar"><div class="legend-bar__fill" style="width:${answer.percent}%"></div></div>
+        `;
+        legend.append(item);
+    });
+    chartSection.append(pieChart, legend);
+    const meta = document.createElement('div');
+    meta.className = 'stats-meta';
+    meta.append(
+        metric('Доступ', stats.quiz?.visibility === 'private' ? 'Приватный' : 'Публичный'),
+        metric('Режим', stats.quiz?.allow_multiple ? 'Несколько ответов' : 'Один ответ')
+    );
+    const analytics = buildAnalyticsSection(stats.analytics || {});
+    container.replaceChildren(header, chartSection, meta, analytics);
 }
 
 async function renderStatsBlock(container, poll, stats, pollID = '', ownerKey = '') {
@@ -1139,16 +1215,23 @@ function renderPollView(container, data, id) {
     const list = document.createElement('div');
     list.className = 'answer-list';
     const options = data.options || [];
+    const allowMultiple = data.allow_multiple || false;
+    const selectedOptionIDs = data.selected_option_ids || [];
     const selectedOptionID = data.selected_option_id || '';
+    const hasAnswered = allowMultiple ? selectedOptionIDs.length > 0 : !!selectedOptionID;
     const totalVotes = options.reduce((sum, option) => sum + (option.votes || 0), 0);
     options.forEach((option) => {
         const label = document.createElement('label');
         label.className = 'vote-option';
-        const isSelected = option.id === selectedOptionID;
+        const isSelected = allowMultiple ? selectedOptionIDs.includes(option.id) : option.id === selectedOptionID;
         label.classList.toggle('is-user-selected', isSelected);
         const percent = totalVotes ? Math.round(((option.votes || 0) / totalVotes) * 100) : 0;
+        const inputType = allowMultiple ? 'checkbox' : 'radio';
+        const inputName = allowMultiple ? 'opt[]' : 'opt';
+        const inputChecked = isSelected ? 'checked' : '';
+        const inputDisabled = hasAnswered ? 'disabled' : '';
         label.innerHTML = `
-            <input type="radio" name="opt" value="${escapeHtml(option.id)}" ${isSelected ? 'checked' : ''} ${selectedOptionID ? 'disabled' : ''}>
+            <input type="${inputType}" name="${inputName}" value="${escapeHtml(option.id)}" ${inputChecked} ${inputDisabled}>
             <span class="vote-option__body">
                 <span class="vote-option__top">
                     <span class="vote-option__text">${escapeHtml(option.text)}</span>
@@ -1164,8 +1247,8 @@ function renderPollView(container, data, id) {
     });
     const btn = document.createElement('button');
     btn.className = 'primary-button';
-    btn.textContent = selectedOptionID ? 'Голос учтен' : 'Голосовать';
-    btn.disabled = !!selectedOptionID;
+    btn.textContent = hasAnswered ? 'Голос учтен' : 'Голосовать';
+    btn.disabled = hasAnswered;
     if (!options.length) {
         renderMessage(list, 'Варианты ответов не найдены', true);
         btn.disabled = true;
@@ -1173,20 +1256,25 @@ function renderPollView(container, data, id) {
     form.append(list, btn);
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const selected = form.querySelector('input:checked');
-        if (!selected) {
+        const selected = allowMultiple 
+            ? Array.from(form.querySelectorAll('input:checked')).map((input) => input.value)
+            : form.querySelector('input:checked');
+        if (!selected || (Array.isArray(selected) && selected.length === 0)) {
             showToast('Выберите вариант');
             return;
         }
-        if (selectedOptionID) return;
+        if (hasAnswered) return;
         btn.disabled = true;
         btn.textContent = 'Отправка...';
         try {
             const linkSlug = new URLSearchParams(window.location.search).get('link') || window.sessionStorage.getItem('votely_link_' + id) || '';
             const voteQuery = linkSlug ? '?link=' + encodeURIComponent(linkSlug) : '';
+            const payload = Array.isArray(selected) 
+                ? { option_ids: selected }
+                : { option_id: selected };
             const result = await apiJSON('/api/v1/polls/' + encodeURIComponent(id) + '/votes' + voteQuery, {
                 method: 'POST',
-                body: JSON.stringify({ option_id: selected.value })
+                body: JSON.stringify(payload)
             });
             renderPollView(container, result, id);
             animateVoteBars(container);
@@ -1194,9 +1282,9 @@ function renderPollView(container, data, id) {
         } catch (error) {
             console.error('Vote error:', error);
             showToast(error.message || 'Не удалось отправить голос. Проверьте соединение.', 'error');
-            btn.textContent = selectedOptionID ? 'Голос учтен' : 'Голосовать';
+            btn.textContent = hasAnswered ? 'Голос учтен' : 'Голосовать';
         } finally {
-            if (!selectedOptionID) {
+            if (!hasAnswered) {
                 btn.disabled = false;
             }
         }
@@ -1216,6 +1304,7 @@ function animateVoteBars(container) {
 function renderQuizView(container, data) {
     const selectedAnswerID = data.selected_answer_id || '';
     const hasAnswered = !!selectedAnswerID;
+    const allowMultiple = data.allow_multiple || false;
     
     container.innerHTML = `
         <div class="quiz-viewer">
@@ -1233,8 +1322,10 @@ function renderQuizView(container, data) {
         label.className = 'vote-option';
         const isSelected = answer.id === selectedAnswerID;
         label.classList.toggle('is-user-selected', isSelected);
+        const inputType = allowMultiple ? 'checkbox' : 'radio';
+        const inputName = allowMultiple ? 'ans[]' : 'ans';
         label.innerHTML = `
-            <input type="radio" name="ans" value="${escapeHtml(answer.id)}" ${isSelected ? 'checked' : ''} ${hasAnswered ? 'disabled' : ''}>
+            <input type="${inputType}" name="${inputName}" value="${escapeHtml(answer.id)}" ${isSelected ? 'checked' : ''} ${hasAnswered ? 'disabled' : ''}>
             <span class="vote-option__body">
                 <span class="vote-option__top">
                     <span class="vote-option__text">${escapeHtml(answer.text)}</span>
@@ -1258,9 +1349,11 @@ function renderQuizView(container, data) {
     
     const button = container.querySelector('.primary-button');
     button.addEventListener('click', async () => {
-        const selected = container.querySelector('input:checked');
+        const selected = allowMultiple
+            ? Array.from(container.querySelectorAll('input:checked')).map((input) => input.value)
+            : container.querySelector('input:checked');
         const status = container.querySelector('.status');
-        if (!selected) {
+        if (!selected || (Array.isArray(selected) && selected.length === 0)) {
             setStatus(status, 'Выберите вариант', 'error');
             return;
         }
@@ -1271,9 +1364,12 @@ function renderQuizView(container, data) {
                 await openLoginFromConfig();
                 return;
             }
+            const payload = allowMultiple
+                ? { answer_ids: selected }
+                : { answer_id: selected.value };
             const result = await apiJSON('/api/v1/quizzes/' + encodeURIComponent(data.id) + '/answers', {
                 method: 'POST',
-                body: JSON.stringify({ answer_id: selected.value })
+                body: JSON.stringify(payload)
             });
             renderQuizResult(container, data, result);
             showToast(result.is_correct ? 'Ответ сохранен: правильно' : 'Ответ сохранен', result.is_correct ? 'success' : 'error');
