@@ -195,11 +195,12 @@ if (isset($_COOKIE['votely_theme'])) {
 
                     <div class="creator-form__section" data-quiz-fields hidden>
                         <div class="creator-form__section-head">
-                            <h2 class="creator-form__subtitle">Вопрос викторины</h2>
+                            <h2 class="creator-form__subtitle">Варианты ответа</h2>
                             <button class="ghost-button" type="button" data-add-answer>Добавить вариант ответа</button>
                         </div>
                         <div class="stack stack--large" data-questions-list></div>
                     </div>
+
 
                     <div class="creator-form__actions">
                         <button class="primary-button" type="submit">Создать</button>

@@ -479,8 +479,17 @@ func escapeLike(value string) string {
 
 func (s *Store) ListQuizzes(ctx context.Context, query string) ([]ListItem, error) {
 	query = strings.TrimSpace(query)
+	visibilityFilter := ""
+	visibilityExists, err := s.quizVisibilityColumnExists(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if visibilityExists {
+		visibilityFilter = "WHERE visibility = 'public'"
+	}
+
 	if query == "" {
-		rows, err := s.db.Query(ctx, `SELECT id::text, title, description, created_at::text FROM quizzes WHERE visibility = 'public' ORDER BY created_at DESC LIMIT 100`)
+		rows, err := s.db.Query(ctx, `SELECT id::text, title, description, created_at::text FROM quizzes `+visibilityFilter+` ORDER BY created_at DESC LIMIT 100`)
 		if err != nil {
 			return nil, err
 		}
@@ -489,10 +498,14 @@ func (s *Store) ListQuizzes(ctx context.Context, query string) ([]ListItem, erro
 	}
 
 	pattern := "%" + escapeLike(query) + "%"
+	where := "WHERE (title ILIKE $1 ESCAPE '\\' OR description ILIKE $1 ESCAPE '\\')"
+	if visibilityFilter != "" {
+		where = "WHERE visibility = 'public' AND (title ILIKE $1 ESCAPE '\\' OR description ILIKE $1 ESCAPE '\\')"
+	}
 	rows, err := s.db.Query(ctx, `
 		SELECT id::text, title, description, created_at::text
 		FROM quizzes
-		WHERE visibility = 'public' AND (title ILIKE $1 ESCAPE '\' OR description ILIKE $1 ESCAPE '\')
+		`+where+`
 		ORDER BY created_at DESC
 		LIMIT 100`, pattern)
 	if err != nil {
@@ -501,6 +514,20 @@ func (s *Store) ListQuizzes(ctx context.Context, query string) ([]ListItem, erro
 	defer rows.Close()
 	return scanList(rows)
 }
+
+func (s *Store) quizVisibilityColumnExists(ctx context.Context) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema = current_schema()
+				AND table_name = 'quizzes'
+				AND column_name = 'visibility'
+		)`).Scan(&exists)
+	return exists, err
+}
+
 
 func (s *Store) ListUserPolls(ctx context.Context, userID int64, query string) ([]ListItem, error) {
 	query = strings.TrimSpace(query)

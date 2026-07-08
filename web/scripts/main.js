@@ -660,10 +660,6 @@ function addSingleQuizQuestion(list) {
     sec.className = 'quiz-question';
     sec.dataset.row = 'question';
     sec.innerHTML = `
-        <label class="field">
-            <span class="field__label">Вопрос викторины</span>
-            <input class="field__control" name="question" placeholder="Например: Какая планета самая большая?" required maxlength="500">
-        </label>
         <div class="creator-form__section-head">
             <h3 class="creator-form__subtitle">Варианты ответов</h3>
             <p class="creator-form__hint">Отметьте правильный вариант</p>
@@ -674,6 +670,8 @@ function addSingleQuizQuestion(list) {
     answers.append(createAnswerRow(true), createAnswerRow(false));
     list.appendChild(sec);
 }
+
+
 
 function createAnswerRow(checked) {
     const row = document.createElement('div');
@@ -726,7 +724,7 @@ function collectQuizPayload(form) {
     return {
         title: form.elements.title.value,
         description: form.elements.description.value,
-        question: form.querySelector('[name="question"]').value,
+        question: form.elements.title.value,
         visibility: form.querySelector('[data-quiz-fields]:not([hidden]) [name="is_private"]')?.checked ? 'private' : 'public',
         allow_multiple: form.querySelector('[data-quiz-fields]:not([hidden]) [name="allow_multiple"]')?.checked || false,
         answers: Array.from(form.querySelectorAll('.answer-row')).map((row) => ({
@@ -735,6 +733,7 @@ function collectQuizPayload(form) {
         }))
     };
 }
+
 
 function apiCollection(type) {
     return type === 'quiz' ? 'quizzes' : 'polls';

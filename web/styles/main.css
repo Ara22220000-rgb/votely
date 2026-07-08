@@ -4715,17 +4715,18 @@ Premium Page Styles
 .creator__panel {
     position: relative;
     background: linear-gradient(135deg, rgba(26, 26, 26, 0.55) 0%, rgba(26, 26, 26, 0.35) 100%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    border: 2px solid #FF5C00 !important;
     -webkit-backdrop-filter: blur(8px) saturate(120%);
     backdrop-filter: blur(8px) saturate(120%);
-    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 10px var(--accent-neon-soft);
+    box-shadow: 0 0 12px #FF5C00, 0 0 24px rgba(249, 115, 22, 0.15), 0 10px 34px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 [data-theme="light"] .creator__panel {
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.4) 100%) !important;
-    border-color: rgba(255, 255, 255, 0.5) !important;
-    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 0 10px rgba(22, 163, 74, 0.08);
+    border-color: #FF5C00 !important;
+    box-shadow: 0 0 12px #FF5C00, 0 0 24px rgba(249, 115, 22, 0.15), 0 10px 26px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
+
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .creator__panel {
