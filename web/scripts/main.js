@@ -543,11 +543,68 @@ function initCreateForm(form) {
     form.querySelector('[data-add-option]')?.addEventListener('click', () => addOption(optionsList));
     form.querySelector('[data-add-answer]')?.addEventListener('click', () => {
         const answers = form.querySelector('[data-answers]');
-        if (answers) answers.append(createAnswerRow(false));
+        if (answers) {
+            const allowMultiple = form.querySelector('[name="allow_multiple"]')?.checked || false;
+            const row = createAnswerRow(false);
+            // Устанавливаем правильный тип input
+            const checkInput = row.querySelector('.correct-check');
+            if (checkInput) {
+                checkInput.type = allowMultiple ? 'checkbox' : 'radio';
+                // Для radio - имя группы должно быть одинаковым
+                checkInput.name = 'correct_answer';
+            }
+            answers.append(row);
+        }
     });
     form.addEventListener('click', (e) => {
         if (e.target.closest('[data-remove]')) e.target.closest('[data-row]')?.remove();
     });
+    
+    // Динамическое обновление текста переключателей
+    form.querySelectorAll('input[name="is_private"]').forEach((input) => {
+        input.addEventListener('change', () => {
+            const label = input.closest('.toggle-row')?.querySelector('.toggle-switch__label strong');
+            const small = input.closest('.toggle-row')?.querySelector('.toggle-switch__label small');
+            if (label && small) {
+                if (input.name === 'is_private') {
+                    if (type === 'quiz') {
+                        label.textContent = input.checked ? 'Приватная' : 'Публичная';
+                        small.textContent = input.checked ? 'Викторина доступна только по прямой ссылке' : 'Викторина видна всем в списке';
+                    } else {
+                        label.textContent = input.checked ? 'Приватный' : 'Публичный';
+                        small.textContent = input.checked ? 'Опрос доступен только по прямой ссылке' : 'Опрос виден всем в списке';
+                    }
+                }
+            }
+        });
+    });
+    
+    form.querySelectorAll('input[name="allow_multiple"]').forEach((input) => {
+        input.addEventListener('change', () => {
+            const label = input.closest('.toggle-row')?.querySelector('.toggle-switch__label strong');
+            const small = input.closest('.toggle-row')?.querySelector('.toggle-switch__label small');
+            if (label && small) {
+                if (type === 'quiz') {
+                    label.textContent = input.checked ? 'Несколько ответов' : 'Один ответ';
+                    small.textContent = input.checked ? 'Можно выбрать несколько вариантов' : 'Можно выбрать только один вариант';
+                } else {
+                    label.textContent = input.checked ? 'Несколько вариантов' : 'Один вариант';
+                    small.textContent = input.checked ? 'Можно выбрать несколько ответов' : 'Можно выбрать только один ответ';
+                }
+            }
+            // Переключаем тип input для ответов викторины
+            if (type === 'quiz') {
+                toggleAnswerInputType(form, input.checked);
+            }
+        });
+    });
+    
+    // Инициализация текста переключателей при загрузке
+    form.querySelectorAll('input[name="is_private"], input[name="allow_multiple"]').forEach((input) => {
+        const event = new Event('change');
+        input.dispatchEvent(event);
+    });
+    
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = form.querySelector('[type="submit"]');
@@ -622,6 +679,21 @@ function createAnswerRow(checked) {
         <button class="icon-button" type="button" data-remove aria-label="Удалить">×</button>
     `;
     return row;
+}
+
+function toggleAnswerInputType(form, allowMultiple) {
+    // Переключаем тип input для правильных ответов
+    form.querySelectorAll('.correct-check').forEach((input) => {
+        const isChecked = input.checked;
+        input.type = allowMultiple ? 'checkbox' : 'radio';
+        input.name = allowMultiple ? '' : 'correct_answer';
+        // Для radio нужно убедиться, что только один выбран
+        if (!allowMultiple && isChecked) {
+            form.querySelectorAll('.correct-check').forEach((chk) => {
+                if (chk !== input) chk.checked = false;
+            });
+        }
+    });
 }
 
 function collectPollPayload(form) {
