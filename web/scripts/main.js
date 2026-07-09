@@ -1567,7 +1567,10 @@ function chartColor(index) {
         '#84cc16', // лайм
         '#14b8a6', // тиловый
         '#a855f7', // пурпурный
-        '#22d3ee'  // голубой неон
+        '#22d3ee', // голубой неон
+        '#ffffff', // белый
+        '#9ca3af', // серый
+        '#fde047'  // жёлтый неон
     ];
     return colors[index % colors.length];
 }
