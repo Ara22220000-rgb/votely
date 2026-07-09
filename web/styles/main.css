@@ -1276,6 +1276,96 @@ a {
     backdrop-filter: blur(8px);
 }
 
+/* ===== Email auth modal (JS injected) ===== */
+.email-auth-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 95;
+    display: grid;
+    place-items: center;
+    padding: 18px;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+}
+
+.email-auth-modal__overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+}
+
+.email-auth-modal__panel {
+    position: relative;
+    width: min(100%, 420px);
+    padding: 36px 32px;
+    border-radius: 16px;
+    background: var(--panel-bg);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.55), 0 0 20px var(--accent-neon-soft);
+}
+
+.email-auth-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.email-auth-modal__header h2 {
+    margin: 0;
+    color: #ffffff;
+    font-size: 22px;
+    font-weight: 800;
+}
+
+.email-auth-modal__x {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    border: 0;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
+    transition: background 140ms ease;
+}
+
+.email-auth-modal__x:hover,
+.email-auth-modal__x:focus-visible {
+    background: rgba(255, 255, 255, 0.14);
+    outline: none;
+}
+
+.email-step label {
+    display: block;
+    margin: 0 0 10px;
+    color: #e0e0e0;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.email-step input.field__control {
+    min-height: 48px;
+}
+
+.email-step .primary-button,
+.email-step .secondary-button {
+    width: 100%;
+}
+
+.email-step .form-status {
+    margin: 0 0 14px;
+    min-height: 5px;
+}
+
+.email-auth-modal__body {
+    display: grid;
+    gap: 20px;
+}
+
+
 .auth-modal__panel {
     position: relative;
     width: min(100%, 380px);

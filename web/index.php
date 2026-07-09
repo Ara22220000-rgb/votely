@@ -138,7 +138,7 @@
 
                     <div class="footer__contact">
                         <a class="footer__email" href="mailto:help@votely.local">help@votely.local</a>
-                    <div class="footer__social-row" aria-label="Социальные сети">
+                        <div class="footer__social-row" aria-label="Социальные сети">
                             <a class="footer__social" href="https://t.me/votely_net" aria-label="Telegram">TG</a>
                         </div>
                     </div>

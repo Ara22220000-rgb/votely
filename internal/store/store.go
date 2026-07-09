@@ -1802,3 +1802,59 @@ func rollback(ctx context.Context, tx pgx.Tx) {
 	}
 }
 
+// EmailCodeRecord хранит запись о коде подтверждения email.
+type EmailCodeRecord struct {
+	CodeHash  string
+	ExpiresAt time.Time
+	Attempts  int
+}
+
+// SaveEmailCode удаляет старые коды для email и сохраняет новый.
+func (s *Store) SaveEmailCode(ctx context.Context, email, codeHash string, expiresAt time.Time) error {
+	if _, err := s.db.Exec(ctx, `DELETE FROM email_auth_codes WHERE email = $1`, email); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(ctx, `INSERT INTO email_auth_codes (email, code_hash, expires_at) VALUES ($1, $2, $3)`, email, codeHash, expiresAt)
+	return err
+}
+
+// GetEmailCode возвращает последнюю запись кода для email.
+func (s *Store) GetEmailCode(ctx context.Context, email string) (EmailCodeRecord, error) {
+	var rec EmailCodeRecord
+	err := s.db.QueryRow(ctx, `SELECT code_hash, expires_at, attempts FROM email_auth_codes WHERE email = $1 ORDER BY created_at DESC LIMIT 1`, email).Scan(&rec.CodeHash, &rec.ExpiresAt, &rec.Attempts)
+	return rec, err
+}
+
+// IncrementEmailCodeAttempts увеличивает счётчик неудачных попыток ввода кода.
+func (s *Store) IncrementEmailCodeAttempts(ctx context.Context, email string) error {
+	_, err := s.db.Exec(ctx, `UPDATE email_auth_codes SET attempts = attempts + 1 WHERE email = $1`, email)
+	return err
+}
+
+// DeleteEmailCode удаляет код после успешной верификации.
+func (s *Store) DeleteEmailCode(ctx context.Context, email string) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM email_auth_codes WHERE email = $1`, email)
+	return err
+}
+
+// GetOrCreateEmailUser находит или создаёт пользователя с данным email.
+func (s *Store) GetOrCreateEmailUser(ctx context.Context, email string) (TelegramUser, error) {
+	// Сначала ищем существующего пользователя по email
+	var user TelegramUser
+	err := s.db.QueryRow(ctx, `SELECT id, first_name, COALESCE(username, '') FROM telegram_users WHERE email = $1 AND auth_method = 'email'`, email).Scan(&user.ID, &user.FirstName, &user.Username)
+	if err == nil {
+		return user, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return TelegramUser{}, err
+	}
+
+	// Создаём нового email-пользователя
+	name := email
+	if idx := strings.Index(email, "@"); idx > 0 {
+		name = email[:idx]
+	}
+	err = s.db.QueryRow(ctx, `INSERT INTO telegram_users (id, first_name, username, email, auth_method, auth_date) VALUES (nextval('email_user_id_seq'), $1, '', $2, 'email', NOW()) RETURNING id, first_name`, name, email).Scan(&user.ID, &user.FirstName)
+	return user, err
+}
+

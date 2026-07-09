@@ -1,4 +1,10 @@
-FROM golang:1.23-alpine AS builder
+//go:build tools
+// +build tools
+
+package tools
+
+const _Dockerfile = `FROM golang:1.23-alpine AS builder
+
 
 WORKDIR /app
 

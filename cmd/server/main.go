@@ -42,6 +42,11 @@ func main() {
 		HashSecret:          cfg.VoteHashSecret,
 		TelegramBotToken:    cfg.TelegramBotToken,
 		TelegramBotUsername: cfg.TelegramBotUsername,
+		SMTPHost:            cfg.SMTPHost,
+		SMTPPort:            cfg.SMTPPort,
+		SMTPUser:            cfg.SMTPUser,
+		SMTPPassword:        cfg.SMTPPassword,
+		SMTPFrom:            cfg.SMTPFrom,
 	})
 
 	errCh := make(chan error, 1)

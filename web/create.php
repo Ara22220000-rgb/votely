@@ -118,8 +118,7 @@
                     <div class="creator-form__section" data-poll-fields>
                         <div class="creator-form__section-head">
                             <h2 class="creator-form__subtitle">Доступ</h2>
-                        </div>
-                        <p class="creator-form__hint">По умолчанию опросы приватные — доступны только по прямой ссылке.</p>
+                        </div>                       
                         <label class="toggle-row toggle-row--full">
                             <input type="checkbox" name="is_public">
                             <span class="toggle-switch__track"></span>

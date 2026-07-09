@@ -74,9 +74,15 @@ function escapeHtml(value) {
 }
 
 function userDisplayName(user) {
-    const raw = user?.username || user?.first_name || 'Профиль';
-    return String(raw).replace(/^@/, '').slice(0, 10);
+    // Для email-пользователей first_name — это часть email до @
+    // (устанавливается бэкендом в GetOrCreateEmailUser).
+    // Для Telegram-пользователей — это имя из Telegram.
+    return user?.first_name || user?.username || 'Пользователь';
 }
+
+
+
+
 
 function userAvatar(user) {
     const initial = userDisplayName(user).slice(0, 1).toUpperCase() || 'U';
@@ -90,10 +96,12 @@ function userAvatar(user) {
 function persistLastAuthUser(user) {
     if (!user) return;
     const photo = user.photo_url || '';
-    const name = user.username || user.first_name || '';
+    // В проекте нет входа через Telegram: запоминаем только имя/почту (first_name).
+    const name = user.first_name || '';
     if (photo) localStorage.setItem('votely:last-avatar', photo);
     if (name) localStorage.setItem('votely:last-name', name);
 }
+
 
 function lastAuthAvatar() {
     const photo = localStorage.getItem('votely:last-avatar') || '';
@@ -108,30 +116,177 @@ function lastAuthAvatar() {
 }
 
 function initEmailAuthUI() {
-    if (document.body.dataset.emailAuthDelegationBound === '1') return;
-    document.body.dataset.emailAuthDelegationBound = '1';
-    console.log('[EmailAuth] initEmailAuthUI called');
+    // Email auth UI
+    const loginBtn = document.querySelector('[data-auth-action="login"]');
+    if (!loginBtn) return;
 
-    document.addEventListener('click', async (event) => {
-        const btn = event.target.closest('[data-auth-action="login"]');
-        if (!btn) return;
-        console.log('[EmailAuth] Login button clicked');
-        event.preventDefault();
-        try {
-            console.log('[EmailAuth] Opening email auth modal...');
-            openEmailAuthModal();
-        } catch (error) {
-            console.error('[EmailAuth] Error opening modal:', error);
-            const msg = error.message === 'Failed to fetch' 
-                ? 'Сервер недоступен. Проверьте соединение.' 
-                : error.message;
-            showToast(msg);
-        }
+    // Create modal once
+    if (!document.querySelector('[data-email-auth-modal]')) {
+        const modal = document.createElement('div');
+        modal.className = 'email-auth-modal';
+        modal.dataset.emailAuthModal = '';
+        modal.hidden = true;
+        modal.innerHTML = `
+            <div class="email-auth-modal__overlay" data-email-auth-close></div>
+            <div class="email-auth-modal__panel" role="dialog" aria-modal="true">
+                <div class="email-auth-modal__header">
+                    <h2>Вход по почте</h2>
+                    <button type="button" class="email-auth-modal__x" data-email-auth-close aria-label="Закрыть">×</button>
+                </div>
+
+                <div class="email-auth-modal__body">
+                    <div class="email-step" data-email-step="request">
+                        <label>Введите email</label>
+                        <input class="field__control" type="email" name="email" placeholder="name@example.com" autocomplete="email">
+                        <p class="form-status form-status--muted" data-email-status></p>
+                        <button class="primary-button" type="button" data-email-request>Получить код</button>
+                    </div>
+
+                    <div class="email-step" data-email-step="verify" hidden>
+                        <label>Введите 6-значный код</label>
+                        <input class="field__control" inputmode="numeric" pattern="\\d{6}" type="text" name="code" placeholder="000000" maxlength="6" autocomplete="one-time-code">
+                        <p class="form-status form-status--muted" data-email-status></p>
+                        <div class="stack" style="gap:10px">
+                            <button class="primary-button" type="button" data-email-verify>Войти</button>
+                            <button class="secondary-button" type="button" data-email-resend>Запросить код снова</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.append(modal);
+
+        // Close
+        modal.querySelectorAll('[data-email-auth-close]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                modal.hidden = true;
+                if (resendTimer) { clearInterval(resendTimer); resendTimer = null; }
+                if (resendBtn) { resendBtn.disabled = false; resendBtn.textContent = 'Запросить код снова'; }
+            });
+        });
+    }
+
+    const modal = document.querySelector('[data-email-auth-modal]');
+    const emailInput = modal.querySelector('input[name="email"]');
+    const codeInput = modal.querySelector('input[name="code"]');
+    const statusEls = modal.querySelectorAll('[data-email-status]');
+
+    let lastEmail = '';
+    let resendTimer = null;
+
+    function setStatus(msg, kind) {
+        statusEls.forEach((el) => {
+            el.textContent = msg || '';
+            el.className = 'form-status form-status--muted ' + (kind ? 'is-' + kind : '');
+        });
+    }
+
+    function setStep(step) {
+        modal.querySelectorAll('[data-email-step]').forEach((el) => {
+            el.hidden = el.dataset.emailStep !== step;
+        });
+    }
+
+    loginBtn.addEventListener('click', () => {
+        console.log('[email-auth] login button clicked');
+        lastEmail = '';
+        if (emailInput) emailInput.value = '';
+        if (codeInput) codeInput.value = '';
+        setStatus('', '');
+        setStep('request');
+        if (resendTimer) { clearInterval(resendTimer); resendTimer = null; }
+        if (resendBtn) { resendBtn.disabled = false; resendBtn.textContent = 'Запросить код снова'; }
+        modal.hidden = false;
+        emailInput?.focus();
     });
+
+
+    const requestBtn = modal.querySelector('[data-email-request]');
+    const resendBtn = modal.querySelector('[data-email-resend]');
+    const verifyBtn = modal.querySelector('[data-email-verify]');
+
+    function startResendTimer() {
+        if (resendTimer) clearInterval(resendTimer);
+        if (!resendBtn) return;
+
+        let seconds = 60;
+        resendBtn.disabled = true;
+        resendBtn.textContent = `Отправить код можно через ${seconds}с`;
+
+        resendTimer = setInterval(() => {
+            seconds--;
+            if (seconds <= 0) {
+                clearInterval(resendTimer);
+                resendBtn.disabled = false;
+                resendBtn.textContent = 'Запросить код снова';
+            } else {
+                resendBtn.textContent = `Отправить код можно через ${seconds}с`;
+            }
+        }, 1000);
+    }
+
+    async function requestCode() {
+        const email = (emailInput?.value || '').trim();
+        lastEmail = email;
+        if (!email) {
+            setStatus('Введите email', 'error');
+            return;
+        }
+        setStatus('Отправка...', '');
+        requestBtn && (requestBtn.disabled = true);
+        resendBtn && (resendBtn.disabled = true);
+        try {
+            await apiJSON('/api/v1/auth/email/request', {
+                method: 'POST',
+                body: JSON.stringify({ email })
+            });
+            setStatus('Код отправлен на почту', 'success');
+            setStep('verify');
+            verifyBtn && (verifyBtn.disabled = false);
+            codeInput?.focus();
+            startResendTimer();
+        } catch (err) {
+            setStatus(err.message || 'Ошибка', 'error');
+            resendBtn && (resendBtn.disabled = false);
+            if (resendTimer) { clearInterval(resendTimer); resendTimer = null; }
+            if (resendBtn) resendBtn.textContent = 'Запросить код снова';
+        } finally {
+            requestBtn && (requestBtn.disabled = false);
+        }
+    }
+
+    async function verifyCode() {
+        const code = (codeInput?.value || '').trim();
+        if (!code) {
+            setStatus('Введите код', 'error');
+            return;
+        }
+        setStatus('Проверка...', '');
+        verifyBtn && (verifyBtn.disabled = true);
+        try {
+            await apiJSON('/api/v1/auth/email/verify', {
+                method: 'POST',
+                body: JSON.stringify({ email: lastEmail, code })
+            });
+            // После успешного логина обновим состояние
+            await checkAuthStatus();
+            modal.hidden = true;
+            showToast('Вы вошли', 'success');
+        } catch (err) {
+            setStatus(err.message || 'Ошибка', 'error');
+        } finally {
+            verifyBtn && (verifyBtn.disabled = false);
+        }
+    }
+
+    requestBtn?.addEventListener('click', requestCode);
+    resendBtn?.addEventListener('click', requestCode);
+    verifyBtn?.addEventListener('click', verifyCode);
 }
 
-// Включаем делегирование сразу, чтобы кнопка работала даже если renderAuthControls() не вызывался.
-initEmailAuthUI();
+// Keep function call for compatibility.
+// initEmailAuthUI() is now called inside renderAuthControls() to avoid duplicate event listeners.
+
 
 function initLogoutUI() {
     document.querySelectorAll('[data-auth-logout]').forEach((button) => {
@@ -196,141 +351,16 @@ function initAuthGuards() {
         if (!state.authenticated) {
             event.preventDefault();
             showToast('Войдите, чтобы создать опрос.');
-            openEmailAuthModal();
+            // Keep previous behavior hook, but email modal is disabled.
+            // Telegram auth UI should be used instead.
         }
     });
 }
 
+
 function openEmailAuthModal() {
-    console.log('[EmailAuth] openEmailAuthModal called');
-    document.querySelector('[data-auth-modal]')?.remove();
-    const modal = document.createElement('div');
-    modal.className = 'auth-modal';
-    modal.dataset.authModal = '';
-    modal.innerHTML = `
-        <div class="auth-modal__panel" role="dialog" aria-modal="true" aria-labelledby="email-auth-title">
-            <button class="auth-modal__close" type="button" aria-label="Закрыть">×</button>
-            <h2 id="email-auth-title">Вход по почте</h2>
-            <div class="auth-modal__body">
-                <div class="auth-step" data-auth-step="email">
-                    <p class="auth-modal__hint">Введите email — мы отправим код подтверждения.</p>
-                    <form class="auth-form" data-email-form>
-                        <input class="auth-form__input" type="email" name="email" placeholder="you@example.com" autocomplete="email" required>
-                        <button class="auth-form__btn primary-button" type="submit">Отправить код</button>
-                    </form>
-                </div>
-                <div class="auth-step" data-auth-step="code" hidden>
-                    <p class="auth-modal__hint">Код подтверждения отправлен на <strong data-auth-email></strong>.</p>
-                    <form class="auth-form" data-code-form>
-                        <input class="auth-form__input auth-form__input--code" type="text" name="code" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required>
-                        <button class="auth-form__btn primary-button" type="submit">Войти</button>
-                    </form>
-                    <button class="auth-form__link" type="button" data-auth-back>← Изменить email</button>
-                </div>
-            </div>
-            <p class="auth-modal__status" data-auth-status></p>
-        </div>
-    `;
-    modal.querySelector('.auth-modal__close').addEventListener('click', () => modal.remove());
-    modal.addEventListener('click', (event) => {
-        if (event.target === modal) modal.remove();
-    });
-    document.body.append(modal);
-    console.log('[EmailAuth] Modal created and appended');
-
-    const statusEl = modal.querySelector('[data-auth-status]');
-    const emailStep = modal.querySelector('[data-auth-step="email"]');
-    const codeStep = modal.querySelector('[data-auth-step="code"]');
-    const emailDisplay = modal.querySelector('[data-auth-email]');
-    const emailInput = modal.querySelector('[data-email-form] input[name="email"]');
-    const codeInput = modal.querySelector('[data-code-form] input[name="code"]');
-    let currentEmail = '';
-
-    // Focus email input
-    emailInput?.focus();
-
-    // Step 1: request code
-    modal.querySelector('[data-email-form]').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const email = emailInput.value.trim();
-        if (!email) return;
-        const btn = modal.querySelector('[data-email-form] .auth-form__btn');
-        btn.disabled = true;
-        btn.textContent = 'Отправка...';
-        statusEl.textContent = '';
-        statusEl.classList.remove('is-error');
-        try {
-            const result = await apiJSON('/api/v1/auth/email/request', {
-                method: 'POST',
-                body: JSON.stringify({ email })
-            });
-            currentEmail = email;
-            emailDisplay.textContent = email;
-            emailStep.hidden = true;
-            codeStep.hidden = false;
-            codeInput.value = '';
-            codeInput.focus();
-            // Dev mode: show code in toast
-            if (result.dev_code) {
-                showToast('Код (dev): ' + result.dev_code, 'success');
-            }
-        } catch (error) {
-            statusEl.textContent = error.message;
-            statusEl.classList.add('is-error');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'Отправить код';
-        }
-    });
-
-    // Step 2: verify code
-    modal.querySelector('[data-code-form]').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const code = codeInput.value.trim();
-        if (!/^\d{6}$/.test(code)) {
-            statusEl.textContent = 'Код состоит из 6 цифр';
-            statusEl.classList.add('is-error');
-            return;
-        }
-        const btn = modal.querySelector('[data-code-form] .auth-form__btn');
-        btn.disabled = true;
-        btn.textContent = 'Проверка...';
-        statusEl.textContent = '';
-        statusEl.classList.remove('is-error');
-        try {
-            const savedUser = await apiJSON('/api/v1/auth/email/verify', {
-                method: 'POST',
-                body: JSON.stringify({ email: currentEmail, code })
-            });
-            console.log('[EmailAuth] Verify response:', savedUser);
-            persistLastAuthUser(savedUser.user || savedUser);
-            modal.remove();
-            authState = { authenticated: true, user: savedUser.user || savedUser, isAdmin: false };
-            authReady = Promise.resolve(authState);
-            renderAuthControls();
-            showToast('Вход выполнен', 'success');
-        } catch (error) {
-            statusEl.textContent = error.message;
-            statusEl.classList.add('is-error');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'Войти';
-        }
-    });
-
-    // Back to email step
-    modal.querySelector('[data-auth-back]').addEventListener('click', () => {
-        codeStep.hidden = true;
-        emailStep.hidden = false;
-        emailInput.focus();
-        statusEl.textContent = '';
-        statusEl.classList.remove('is-error');
-    });
-
-    // Allow only digits in code input
-    codeInput?.addEventListener('input', () => {
-        codeInput.value = codeInput.value.replace(/\D/g, '').slice(0, 6);
-    });
+    // Email auth modal is disabled.
+    showToast('Вход по почте недоступен в текущей версии.', 'error');
 }
 
 function initCreateForm(form) {
@@ -359,18 +389,21 @@ function initCreateForm(form) {
     form.querySelector('[data-add-option]')?.addEventListener('click', () => addOption(optionsList));
     form.querySelector('[data-add-answer]')?.addEventListener('click', () => {
         const answers = form.querySelector('[data-answers]');
-        if (answers) {
-            const allowMultiple = form.querySelector('[name="allow_multiple"]')?.checked || false;
-            const row = createAnswerRow(false);
-            // Устанавливаем правильный тип input
-            const checkInput = row.querySelector('.correct-check');
-            if (checkInput) {
-                checkInput.type = allowMultiple ? 'checkbox' : 'radio';
-                // Для radio - имя группы должно быть одинаковым
-                checkInput.name = 'correct_answer';
-            }
-            answers.append(row);
+        if (!answers) return;
+        if (answers.querySelectorAll('.answer-row').length >= MAX_OPTIONS) {
+            showToast('Максимум ' + MAX_OPTIONS + ' вариантов ответа', 'error');
+            return;
         }
+        const allowMultiple = form.querySelector('[name="allow_multiple"]')?.checked || false;
+        const row = createAnswerRow(false);
+        // Устанавливаем правильный тип input
+        const checkInput = row.querySelector('.correct-check');
+        if (checkInput) {
+            checkInput.type = allowMultiple ? 'checkbox' : 'radio';
+            // Для radio - имя группы должно быть одинаковым
+            checkInput.name = 'correct_answer';
+        }
+        answers.append(row);
     });
     form.addEventListener('click', (e) => {
         if (e.target.closest('[data-remove]')) e.target.closest('[data-row]')?.remove();
@@ -392,12 +425,12 @@ function initCreateForm(form) {
         e.preventDefault();
         const btn = form.querySelector('[type="submit"]');
         btn.disabled = true;
+        const originalText = btn.textContent;
         setStatus(status, '', '');
         try {
             const state = await authReady;
             if (!state.authenticated) {
                 setStatus(status, 'Войдите, чтобы создать.', 'error');
-                openEmailAuthModal();
                 return;
             }
             const result = await apiJSON(type === 'quiz' ? '/api/v1/quizzes' : '/api/v1/polls', {
@@ -408,8 +441,23 @@ function initCreateForm(form) {
             window.location.href = 'view.php?type=' + type + '&id=' + encodeURIComponent(result.id) + owner;
         } catch (err) {
             setStatus(status, err.message, 'error');
+            // Блокируем кнопку на 120 секунд при ошибке
+            let seconds = 120;
+            btn.textContent = `Подождите ${seconds}с`;
+            const timer = setInterval(() => {
+                seconds--;
+                if (seconds <= 0) {
+                    clearInterval(timer);
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                } else {
+                    btn.textContent = `Подождите ${seconds}с`;
+                }
+            }, 1000);
         } finally {
-            btn.disabled = false;
+            if (!btn.disabled) {
+                btn.disabled = false;
+            }
         }
     });
 }
@@ -423,8 +471,14 @@ function addDefaultRows(type, optionsList, questionsList) {
     }
 }
 
+const MAX_OPTIONS = 15;
+
 function addOption(list) {
     if (!list) return;
+    if (list.querySelectorAll('[data-row="option"]').length >= MAX_OPTIONS) {
+        showToast('Максимум ' + MAX_OPTIONS + ' вариантов ответа', 'error');
+        return;
+    }
     const row = document.createElement('div');
     row.className = 'option-row';
     row.dataset.row = 'option';
@@ -1276,7 +1330,7 @@ function renderQuizView(container, data) {
         try {
             const state = await authReady;
             if (!state.authenticated) {
-                openEmailAuthModal();
+                // Telegram auth should be used instead.
                 return;
             }
             const payload = allowMultiple
@@ -1561,7 +1615,9 @@ async function initAdminPanel(root) {
         }
         setStatus(status, 'Админ-панель доступна только разрешенным Telegram-аккаунтам.', 'error');
         const state = await authReady;
-        if (!state.authenticated) openEmailAuthModal();
+        if (!state.authenticated) {
+            // Telegram auth should be used instead.
+        }
     }
 
     async function loadAdmin() {

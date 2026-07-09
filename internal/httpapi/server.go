@@ -51,10 +51,26 @@ type ServerConfig struct {
 	HashSecret          string
 	TelegramBotToken    string
 	TelegramBotUsername string
+	SMTPHost            string
+	SMTPPort            string
+	SMTPUser            string
+	SMTPPassword        string
+	SMTPFrom            string
 }
 
 func NewServer(cfg ServerConfig) *http.Server {
-	api := &apiServer{store: cfg.Store, logger: cfg.Logger, hashSecret: cfg.HashSecret, telegramBotToken: cfg.TelegramBotToken, telegramBotUsername: cfg.TelegramBotUsername}
+	api := &apiServer{
+		store:               cfg.Store,
+		logger:              cfg.Logger,
+		hashSecret:          cfg.HashSecret,
+		telegramBotToken:    cfg.TelegramBotToken,
+		telegramBotUsername: cfg.TelegramBotUsername,
+		smtpHost:            cfg.SMTPHost,
+		smtpPort:            cfg.SMTPPort,
+		smtpUser:            cfg.SMTPUser,
+		smtpPassword:        cfg.SMTPPassword,
+		smtpFrom:            cfg.SMTPFrom,
+	}
 	limiter := newRateLimiter(120, time.Minute)
 
 	mux := http.NewServeMux()
@@ -85,7 +101,11 @@ func NewServer(cfg ServerConfig) *http.Server {
 	mux.HandleFunc("GET /api/v1/auth/me", api.authMe)
 	mux.HandleFunc("GET /api/v1/auth/telegram/config", api.telegramConfig)
 	mux.HandleFunc("POST /api/v1/auth/telegram", api.telegramAuth)
+	// Email auth (endpoints exist; in this repo snapshot logic may be disabled)
+	mux.HandleFunc("POST /api/v1/auth/email/request", api.emailRequest)
+	mux.HandleFunc("POST /api/v1/auth/email/verify", api.emailVerify)
 	mux.HandleFunc("POST /api/v1/auth/logout", api.authLogout)
+
 	mux.HandleFunc("GET /api/v1/admin/me", api.adminMe)
 	mux.HandleFunc("GET /api/v1/admin/summary", api.adminOnly(api.adminSummary, false))
 	mux.HandleFunc("GET /api/v1/admin/items", api.adminOnly(api.adminItems, false))
@@ -113,6 +133,11 @@ type apiServer struct {
 	hashSecret          string
 	telegramBotToken    string
 	telegramBotUsername string
+	smtpHost            string
+	smtpPort            string
+	smtpUser            string
+	smtpPassword        string
+	smtpFrom            string
 }
 
 func (s *apiServer) health(w http.ResponseWriter, r *http.Request) {

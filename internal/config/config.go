@@ -16,6 +16,11 @@ type Config struct {
 	TelegramBotToken    string
 	TelegramBotUsername string
 	LogLevel            slog.Level
+	SMTPHost            string
+	SMTPPort            string
+	SMTPUser            string
+	SMTPPassword        string
+	SMTPFrom            string
 }
 
 func Load() Config {
@@ -43,6 +48,11 @@ func Load() Config {
 		TelegramBotToken:    env("TELEGRAM_BOT_TOKEN", ""),
 		TelegramBotUsername: env("TELEGRAM_BOT_USERNAME", ""),
 		LogLevel:            parseLogLevel(env("LOG_LEVEL", "info")),
+		SMTPHost:            env("SMTP_HOST", ""),
+		SMTPPort:            env("SMTP_PORT", "587"),
+		SMTPUser:            env("SMTP_USER", ""),
+		SMTPPassword:        env("SMTP_PASSWORD", ""),
+		SMTPFrom:            env("SMTP_FROM", ""),
 	}
 }
 
