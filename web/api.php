@@ -198,10 +198,11 @@ function getSessionUser($pdo) {
 function listPolls($pdo) {
     $q = cleanText($_GET["q"] ?? "", 120);
     if ($q !== "") {
-        $stmt = $pdo->prepare("SELECT id::text, title, description FROM polls WHERE title ILIKE :q OR description ILIKE :q ORDER BY created_at DESC LIMIT 100");
+        $stmt = $pdo->prepare("SELECT id::text, title, description FROM polls WHERE is_public AND (title ILIKE :q OR description ILIKE :q) ORDER BY created_at DESC LIMIT 100");
         $stmt->execute([":q" => "%$q%"]);
     } else {
-        $stmt = $pdo->query("SELECT id::text, title, description FROM polls ORDER BY created_at DESC LIMIT 100");
+        $stmt = $pdo->prepare("SELECT id::text, title, description FROM polls WHERE is_public ORDER BY created_at DESC LIMIT 100");
+        $stmt->execute();
     }
     echo json_encode(["items" => $stmt->fetchAll()], JSON_UNESCAPED_UNICODE);
 }
@@ -251,10 +252,11 @@ function createPoll($pdo) {
     $userId = getSessionUser($pdo);
     $ownerKey = bin2hex(random_bytes(32));
     $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+    $isPublic = !empty($body["is_public"]);
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare("INSERT INTO polls (title, description, owner_user_id, owner_telegram_id, owner_key_hash) VALUES (:t, :d, :uid, :tgid, :okh) RETURNING id::text");
-        $stmt->execute([":t" => $title, ":d" => $description, ":uid" => $userId, ":tgid" => $userId, ":okh" => $ownerKeyHash]);
+        $stmt = $pdo->prepare("INSERT INTO polls (title, description, owner_user_id, owner_telegram_id, owner_key_hash, is_public) VALUES (:t, :d, :uid, :tgid, :okh, :pub) RETURNING id::text");
+        $stmt->execute([":t" => $title, ":d" => $description, ":uid" => $userId, ":tgid" => $userId, ":okh" => $ownerKeyHash, ":pub" => $isPublic]);
         $id = $stmt->fetch()["id"];
         $stmt = $pdo->prepare("INSERT INTO poll_options (poll_id, option_text, position) VALUES (:pid, :txt, :pos)");
         foreach ($options as $i => $opt) {
@@ -650,10 +652,11 @@ function pollStats($pdo, $pollId) {
 function listQuizzes($pdo) {
     $q = cleanText($_GET["q"] ?? "", 120);
     if ($q !== "") {
-        $stmt = $pdo->prepare("SELECT id::text, title, description FROM quizzes WHERE title ILIKE :q OR description ILIKE :q ORDER BY created_at DESC LIMIT 100");
+        $stmt = $pdo->prepare("SELECT id::text, title, description FROM quizzes WHERE is_public AND (title ILIKE :q OR description ILIKE :q) ORDER BY created_at DESC LIMIT 100");
         $stmt->execute([":q" => "%$q%"]);
     } else {
-        $stmt = $pdo->query("SELECT id::text, title, description FROM quizzes ORDER BY created_at DESC LIMIT 100");
+        $stmt = $pdo->prepare("SELECT id::text, title, description FROM quizzes WHERE is_public ORDER BY created_at DESC LIMIT 100");
+        $stmt->execute();
     }
     echo json_encode(["items" => $stmt->fetchAll()], JSON_UNESCAPED_UNICODE);
 }
@@ -688,10 +691,11 @@ function createQuiz($pdo) {
     $userId = getSessionUser($pdo);
     $ownerKey = bin2hex(random_bytes(32));
     $ownerKeyHash = hash("sha256", "owner:" . $ownerKey);
+    $isPublic = !empty($body["is_public"]);
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare("INSERT INTO quizzes (title, description, owner_user_id, owner_key_hash) VALUES (:t, :d, :uid, :okh) RETURNING id::text");
-        $stmt->execute([":t" => $title, ":d" => $description, ":uid" => $userId, ":okh" => $ownerKeyHash]);
+        $stmt = $pdo->prepare("INSERT INTO quizzes (title, description, owner_user_id, owner_key_hash, is_public) VALUES (:t, :d, :uid, :okh, :pub) RETURNING id::text");
+        $stmt->execute([":t" => $title, ":d" => $description, ":uid" => $userId, ":okh" => $ownerKeyHash, ":pub" => $isPublic]);
         $qid = $stmt->fetch()["id"];
         $stmt = $pdo->prepare("INSERT INTO quiz_questions (quiz_id, question_text, position) VALUES (:qid, :txt, 1) RETURNING id::text");
         $stmt->execute([":qid" => $qid, ":txt" => $question]);

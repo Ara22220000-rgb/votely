@@ -119,12 +119,13 @@
                         <div class="creator-form__section-head">
                             <h2 class="creator-form__subtitle">Доступ</h2>
                         </div>
+                        <p class="creator-form__hint">По умолчанию опросы приватные — доступны только по прямой ссылке.</p>
                         <label class="toggle-row toggle-row--full">
-                            <input type="checkbox" name="is_private">
+                            <input type="checkbox" name="is_public">
                             <span class="toggle-switch__track"></span>
                             <span class="toggle-switch__label">
-                                <strong>Приватный</strong>
-                                <small>Опрос доступен только по прямой ссылке</small>
+                                <strong>Сделать публичным</strong>
+                                <small>Опрос появится в общем списке</small>
                             </span>
                         </label>
                     </div>
@@ -155,12 +156,13 @@
                         <div class="creator-form__section-head">
                             <h2 class="creator-form__subtitle">Доступ</h2>
                         </div>
+                        <p class="creator-form__hint">По умолчанию викторины приватные — доступны только по прямой ссылке.</p>
                         <label class="toggle-row toggle-row--full">
-                            <input type="checkbox" name="is_private">
+                            <input type="checkbox" name="is_public">
                             <span class="toggle-switch__track"></span>
                             <span class="toggle-switch__label">
-                                <strong>Приватная</strong>
-                                <small>Викторина доступна только по прямой ссылке</small>
+                                <strong>Сделать публичной</strong>
+                                <small>Викторина появится в общем списке</small>
                             </span>
                         </label>
                     </div>
