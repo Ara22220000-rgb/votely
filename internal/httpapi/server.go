@@ -211,7 +211,7 @@ func (s *apiServer) getPoll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden", "Опрос доступен только по приватной ссылке.")
 		return
 	}
-	poll, err := s.store.GetPoll(r.Context(), id, s.sessionUserID(r), ownerKeyHash, s.isAdminUser(r.Context(), s.sessionUserID(r)))
+	poll, err := s.store.GetPoll(r.Context(), id, s.sessionUserID(r), ownerKeyHash, s.isAdminUser(r.Context(), s.sessionUserID(r)), s.voterTokenHash(r))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Опрос не найден.")
 		return
@@ -1044,6 +1044,18 @@ func (s *apiServer) voterToken(w http.ResponseWriter, r *http.Request) (string, 
 		SameSite: http.SameSiteLaxMode,
 	})
 	return token, nil
+}
+
+func (s *apiServer) voterTokenHash(r *http.Request) string {
+	cookie, err := r.Cookie(voterCookieName)
+	if err != nil {
+		return ""
+	}
+	token, ok := verifySignedVoterToken(s.hashSecret, cookie.Value)
+	if !ok {
+		return ""
+	}
+	return keyedHash(s.hashSecret, "voter-token:"+token)
 }
 
 func (s *apiServer) sessionUserID(r *http.Request) int64 {

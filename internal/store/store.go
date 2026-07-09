@@ -635,7 +635,7 @@ func (s *Store) ListUserQuizzes(ctx context.Context, userID int64, query string)
 	return scanList(rows)
 }
 
-func (s *Store) GetPoll(ctx context.Context, id string, userID int64, ownerKeyHash string, isAdmin bool) (PollDetail, error) {
+func (s *Store) GetPoll(ctx context.Context, id string, userID int64, ownerKeyHash string, isAdmin bool, voterTokenHash string) (PollDetail, error) {
 	var poll PollDetail
 	var endsAt sql.NullString
 	var closedAt sql.NullString
@@ -701,6 +701,28 @@ func (s *Store) GetPoll(ctx context.Context, id string, userID int64, ownerKeyHa
 				FROM poll_votes
 				WHERE poll_id = $1 AND telegram_user_id = $2
 				LIMIT 1`, id, userID).Scan(&poll.SelectedOptionID)
+		}
+	} else if voterTokenHash != "" {
+		if poll.AllowMultiple {
+			optionRows, err := s.db.Query(ctx, `
+				SELECT option_id::text
+				FROM poll_votes
+				WHERE poll_id = $1 AND voter_token_hash = $2`, id, voterTokenHash)
+			if err == nil {
+				defer optionRows.Close()
+				for optionRows.Next() {
+					var optID string
+					if err := optionRows.Scan(&optID); err == nil {
+						poll.SelectedOptionIDs = append(poll.SelectedOptionIDs, optID)
+					}
+				}
+			}
+		} else {
+			_ = s.db.QueryRow(ctx, `
+				SELECT option_id::text
+				FROM poll_votes
+				WHERE poll_id = $1 AND voter_token_hash = $2
+				LIMIT 1`, id, voterTokenHash).Scan(&poll.SelectedOptionID)
 		}
 	}
 	return poll, nil
@@ -833,7 +855,7 @@ func (s *Store) VotePoll(ctx context.Context, pollID string, optionIDs []string,
 		return VoteResult{}, err
 	}
 
-	poll, err := s.GetPoll(ctx, pollID, identity.TelegramUserID, "", false)
+	poll, err := s.GetPoll(ctx, pollID, identity.TelegramUserID, "", false, identity.VoterTokenHash)
 	if err != nil {
 		return VoteResult{}, err
 	}
@@ -1084,7 +1106,7 @@ func (s *Store) PollStats(ctx context.Context, pollID, ownerKeyHash string, user
 		return PollStats{}, pgx.ErrNoRows
 	}
 
-	poll, err := s.GetPoll(ctx, pollID, userID, ownerKeyHash, admin)
+	poll, err := s.GetPoll(ctx, pollID, userID, ownerKeyHash, admin, "")
 	if err != nil {
 		return PollStats{}, err
 	}

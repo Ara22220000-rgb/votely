@@ -400,13 +400,16 @@ function initCreateForm(form) {
         if (e.target.closest('[data-remove]')) e.target.closest('[data-row]')?.remove();
     });
     
-    // Инициализация переключателей при загрузке
+    // Обработчик переключателя allow_multiple для викторины
     form.querySelectorAll('input[name="allow_multiple"]').forEach((input) => {
-        const event = new Event('change');
-        input.dispatchEvent(event);
+        input.addEventListener('change', () => {
+            if (type === 'quiz') {
+                toggleAnswerInputType(form, input.checked);
+            }
+        });
     });
     
-    // Для викторины: устанавливаем правильный тип input для ответов
+    // Для викторины: устанавливаем правильный тип input для ответов при загрузке
     if (type === 'quiz') {
         const allowMultiple = form.querySelector('[data-quiz-fields]:not([hidden]) [name="allow_multiple"]')?.checked || false;
         toggleAnswerInputType(form, allowMultiple);
