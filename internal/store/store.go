@@ -115,6 +115,7 @@ type (
 		FirstName string    `json:"first_name"`
 		LastName  string    `json:"last_name"`
 		Username  string    `json:"username"`
+		Email     string    `json:"email"`
 		PhotoURL  string    `json:"photo_url"`
 		AuthDate  time.Time `json:"auth_date"`
 	}
@@ -1312,11 +1313,11 @@ func (s *Store) UpsertTelegramUser(ctx context.Context, user TelegramUser) error
 func (s *Store) TelegramUser(ctx context.Context, id int64) (TelegramUser, error) {
 	var user TelegramUser
 	err := s.db.QueryRow(ctx, `
-		SELECT id, first_name, last_name, username, photo_url, auth_date
+		SELECT id, first_name, last_name, username, COALESCE(email, ''), photo_url, auth_date
 		FROM telegram_users
 		WHERE id = $1`,
 		id,
-	).Scan(&user.ID, &user.FirstName, &user.LastName, &user.Username, &user.PhotoURL, &user.AuthDate)
+	).Scan(&user.ID, &user.FirstName, &user.LastName, &user.Username, &user.Email, &user.PhotoURL, &user.AuthDate)
 	return user, err
 }
 
@@ -1841,7 +1842,7 @@ func (s *Store) DeleteEmailCode(ctx context.Context, email string) error {
 func (s *Store) GetOrCreateEmailUser(ctx context.Context, email string) (TelegramUser, error) {
 	// Сначала ищем существующего пользователя по email
 	var user TelegramUser
-	err := s.db.QueryRow(ctx, `SELECT id, first_name, COALESCE(username, '') FROM telegram_users WHERE email = $1 AND auth_method = 'email'`, email).Scan(&user.ID, &user.FirstName, &user.Username)
+	err := s.db.QueryRow(ctx, `SELECT id, first_name, COALESCE(username, ''), COALESCE(email, '') FROM telegram_users WHERE email = $1 AND auth_method = 'email'`, email).Scan(&user.ID, &user.FirstName, &user.Username, &user.Email)
 	if err == nil {
 		return user, nil
 	}
@@ -1854,7 +1855,7 @@ func (s *Store) GetOrCreateEmailUser(ctx context.Context, email string) (Telegra
 	if idx := strings.Index(email, "@"); idx > 0 {
 		name = email[:idx]
 	}
-	err = s.db.QueryRow(ctx, `INSERT INTO telegram_users (id, first_name, username, email, auth_method, auth_date) VALUES (nextval('email_user_id_seq'), $1, '', $2, 'email', NOW()) RETURNING id, first_name`, name, email).Scan(&user.ID, &user.FirstName)
+	err = s.db.QueryRow(ctx, `INSERT INTO telegram_users (id, first_name, username, email, auth_method, auth_date) VALUES (nextval('email_user_id_seq'), $1, '', $2, 'email', NOW()) RETURNING id, first_name, email`, name, email).Scan(&user.ID, &user.FirstName, &user.Email)
 	return user, err
 }
 

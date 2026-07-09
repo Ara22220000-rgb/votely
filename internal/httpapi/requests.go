@@ -60,28 +60,6 @@ type createShareLinkRequest struct {
 	Name string `json:"name"`
 }
 
-// telegramAuthPayload mirrors the JSON sent by the Telegram Login Widget.
-// id and auth_date arrive as JSON numbers and are typed as int64 to avoid
-// float64 precision loss. Optional fields use *string so we can distinguish
-// "field absent" (nil) from "field present but empty" — only present fields
-// must be included in the data-check string for HMAC verification.
-type telegramAuthPayload struct {
-	ID        int64   `json:"id"`
-	AuthDate  int64   `json:"auth_date"`
-	FirstName string  `json:"first_name"`
-	LastName  *string `json:"last_name"`
-	Username  *string `json:"username"`
-	PhotoURL  *string `json:"photo_url"`
-	Hash      string  `json:"hash"`
-}
-
-func derefStr(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-
 func (r createPollRequest) toInput(ownerUserID int64, ownerTelegramID int64, ownerKeyHash string) (store.PollInput, error) {
 	title, err := validateText(r.Title, "Название опроса", maxTitleLength, true)
 	if err != nil {

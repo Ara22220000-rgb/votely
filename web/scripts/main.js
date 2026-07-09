@@ -76,7 +76,6 @@ function escapeHtml(value) {
 function userDisplayName(user) {
     // Для email-пользователей first_name — это часть email до @
     // (устанавливается бэкендом в GetOrCreateEmailUser).
-    // Для Telegram-пользователей — это имя из Telegram.
     return user?.first_name || user?.username || 'Пользователь';
 }
 
@@ -96,7 +95,6 @@ function userAvatar(user) {
 function persistLastAuthUser(user) {
     if (!user) return;
     const photo = user.photo_url || '';
-    // В проекте нет входа через Telegram: запоминаем только имя/почту (first_name).
     const name = user.first_name || '';
     if (photo) localStorage.setItem('votely:last-avatar', photo);
     if (name) localStorage.setItem('votely:last-name', name);
@@ -351,17 +349,10 @@ function initAuthGuards() {
         if (!state.authenticated) {
             event.preventDefault();
             showToast('Войдите, чтобы создать опрос.');
-            // Keep previous behavior hook, but email modal is disabled.
-            // Telegram auth UI should be used instead.
         }
     });
 }
 
-
-function openEmailAuthModal() {
-    // Email auth modal is disabled.
-    showToast('Вход по почте недоступен в текущей версии.', 'error');
-}
 
 function initCreateForm(form) {
     const params = new URLSearchParams(window.location.search);
@@ -1330,7 +1321,6 @@ function renderQuizView(container, data) {
         try {
             const state = await authReady;
             if (!state.authenticated) {
-                // Telegram auth should be used instead.
                 return;
             }
             const payload = allowMultiple
@@ -1616,10 +1606,9 @@ async function initAdminPanel(root) {
             await loadAdmin();
             return;
         }
-        setStatus(status, 'Админ-панель доступна только разрешенным Telegram-аккаунтам.', 'error');
+        setStatus(status, 'Админ-панель доступна только разрешённым аккаунтам.', 'error');
         const state = await authReady;
         if (!state.authenticated) {
-            // Telegram auth should be used instead.
         }
     }
 

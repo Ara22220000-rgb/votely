@@ -79,12 +79,6 @@ switch (true) {
     case $method === "POST" && $path === "/api/v1/auth/logout":
         logout($pdo);
         break;
-    case $method === "GET" && $path === "/api/v1/auth/telegram/config":
-        telegramConfig();
-        break;
-    case $method === "POST" && $path === "/api/v1/auth/telegram":
-        telegramAuth($pdo);
-        break;
     case $method === "GET" && $path === "/api/v1/admin/me":
         adminMe();
         break;
@@ -833,45 +827,6 @@ function logout($pdo) {
     }
     setSecureCookie("votely_session", "", time() - 3600, true);
     echo json_encode(["success" => true], JSON_UNESCAPED_UNICODE);
-}
-
-function telegramConfig() {
-    $username = trim(getenv("TELEGRAM_BOT_USERNAME") ?: "");
-    $token = trim(getenv("TELEGRAM_BOT_TOKEN") ?: "");
-    echo json_encode([
-        "enabled" => $username !== "" && $token !== "",
-        "bot_username" => $username,
-    ], JSON_UNESCAPED_UNICODE);
-}
-
-function telegramAuth($pdo) {
-    global $body;
-    $botToken = getenv("TELEGRAM_BOT_TOKEN") ?: "";
-    if (!$botToken) jsonError(503, "not_configured", "Telegram не настроен");
-    $hash = $body["hash"] ?? "";
-    $authDate = (int)($body["auth_date"] ?? 0);
-    if (!$hash || time() - $authDate > 86400) jsonError(400, "expired", "Данные устарели");
-    $checkData = [];
-    foreach ($body as $key => $value) {
-        if ($key !== "hash") $checkData[] = "$key=$value";
-    }
-    sort($checkData);
-    $secretKey = hash("sha256", $botToken, true);
-    if (!hash_equals(hash_hmac("sha256", implode("\n", $checkData), $secretKey), $hash)) {
-        jsonError(400, "invalid_hash", "Неверная подпись");
-    }
-    $userId = (int)($body["id"] ?? 0);
-    if ($userId <= 0) jsonError(400, "invalid_user", "Неверный ID");
-    $stmt = $pdo->prepare("INSERT INTO telegram_users (id, username, first_name, last_name, photo_url, auth_date, updated_at) VALUES (:id, :username, :first_name, :last_name, :photo_url, to_timestamp(:auth_date), NOW()) ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username, first_name=EXCLUDED.first_name, last_name=EXCLUDED.last_name, photo_url=EXCLUDED.photo_url, auth_date=to_timestamp(:auth_date), updated_at=NOW()");
-    $stmt->execute([":id" => $userId, ":username" => $body["username"] ?? "", ":first_name" => $body["first_name"] ?? "", ":last_name" => $body["last_name"] ?? "", ":photo_url" => $body["photo_url"] ?? "", ":auth_date" => $authDate]);
-    $token = bin2hex(random_bytes(32));
-    $tokenHash = hash("sha256", "session-token:" . $token);
-    $expiresAt = time() + (30 * 24 * 60 * 60);
-    $stmt = $pdo->prepare("INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES (:uid, :token, to_timestamp(:exp))");
-    $stmt->execute([":uid" => $userId, ":token" => $tokenHash, ":exp" => $expiresAt]);
-    $sig = hash_hmac("sha256", "session:" . $token, getenv("HASH_SECRET") ?: "dev-secret");
-    setSecureCookie("votely_session", "$token.$sig", $expiresAt, true);
-    echo json_encode(["success" => true, "user" => ["id" => $userId, "username" => $body["username"] ?? ""]], JSON_UNESCAPED_UNICODE);
 }
 
 function adminPasswordOk($password) {

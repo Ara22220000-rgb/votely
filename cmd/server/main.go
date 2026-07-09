@@ -35,18 +35,16 @@ func main() {
 	}
 
 	app := httpapi.NewServer(httpapi.ServerConfig{
-		Addr:                cfg.Addr,
-		StaticDir:           cfg.StaticDir,
-		Store:               store.New(db),
-		Logger:              logger,
-		HashSecret:          cfg.VoteHashSecret,
-		TelegramBotToken:    cfg.TelegramBotToken,
-		TelegramBotUsername: cfg.TelegramBotUsername,
-		SMTPHost:            cfg.SMTPHost,
-		SMTPPort:            cfg.SMTPPort,
-		SMTPUser:            cfg.SMTPUser,
-		SMTPPassword:        cfg.SMTPPassword,
-		SMTPFrom:            cfg.SMTPFrom,
+		Addr:          cfg.Addr,
+		StaticDir:     cfg.StaticDir,
+		Store:         store.New(db),
+		Logger:        logger,
+		HashSecret:    cfg.VoteHashSecret,
+		SMTPHost:      cfg.SMTPHost,
+		SMTPPort:      cfg.SMTPPort,
+		SMTPUser:      cfg.SMTPUser,
+		SMTPPassword:  cfg.SMTPPassword,
+		SMTPFrom:      cfg.SMTPFrom,
 	})
 
 	errCh := make(chan error, 1)

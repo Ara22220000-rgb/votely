@@ -1,5 +1,6 @@
 <?php
 $adminTelegramUsers = [6725709823, 6357965364, 8415321014];
+$adminEmails = ["svechnikova29@sch57.ru"];
 $hashSecret = getenv("HASH_SECRET") ?: "dev-secret-key-for-local-development-only";
 
 function votelyAdminHash($secret, $value) {
@@ -36,6 +37,12 @@ if ($token !== null) {
         $stmt->execute([":token_hash" => votelyAdminHash($hashSecret, "session:" . $token)]);
         $userId = (int)($stmt->fetchColumn() ?: 0);
         $isAdmin = in_array($userId, $adminTelegramUsers, true);
+        if (!$isAdmin && $userId > 0) {
+            $stmt2 = $pdo->prepare("SELECT COALESCE(email, '') FROM telegram_users WHERE id = :id");
+            $stmt2->execute([":id" => $userId]);
+            $userEmail = strtolower(trim($stmt2->fetchColumn() ?: ""));
+            $isAdmin = in_array($userEmail, $adminEmails, true);
+        }
     } catch (Throwable $e) {
         $isAdmin = false;
     }
@@ -89,7 +96,7 @@ if (!$isAdmin) {
                 </div>
 
                 <div class="creator-form admin-login" data-admin-login>
-                    <p class="form-status" data-admin-status role="status" aria-live="polite">Проверяем Telegram-доступ...</p>
+                    <p class="form-status" data-admin-status role="status" aria-live="polite">Проверяем доступ...</p>
                 </div>
 
                 <div class="admin-panel" data-admin-panel hidden>
@@ -97,7 +104,7 @@ if (!$isAdmin) {
 
                     <div class="creator-form__section admin-section-gap">
                         <h2 class="creator-form__subtitle">Управление контентом</h2>
-                        <p class="creator-form__hint">Доступ разрешен только указанным Telegram-аккаунтам. Удаление защищено серверной сессией и CSRF-токеном.</p>
+                        <p class="creator-form__hint">Доступ разрешен только указанным аккаунтам. Удаление защищено серверной сессией и CSRF-токеном.</p>
                     </div>
                     <div class="creator__switch admin-switch-gap">
                         <button class="creator__switch-link is-active" type="button" data-admin-type="polls">Опросы</button>

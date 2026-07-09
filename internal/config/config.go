@@ -8,19 +8,17 @@ import (
 )
 
 type Config struct {
-	Addr                string
-	DatabaseURL         string
-	StaticDir           string
-	MigrationsDir       string
-	VoteHashSecret      string
-	TelegramBotToken    string
-	TelegramBotUsername string
-	LogLevel            slog.Level
-	SMTPHost            string
-	SMTPPort            string
-	SMTPUser            string
-	SMTPPassword        string
-	SMTPFrom            string
+	Addr         string
+	DatabaseURL  string
+	StaticDir    string
+	MigrationsDir string
+	VoteHashSecret string
+	LogLevel     slog.Level
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUser     string
+	SMTPPassword string
+	SMTPFrom     string
 }
 
 func Load() Config {
@@ -40,19 +38,17 @@ func Load() Config {
 		hashSecret = env("HASH_SECRET", databaseURL)
 	}
 	return Config{
-		Addr:                env("APP_ADDR", ":8080"),
-		DatabaseURL:         databaseURL,
-		StaticDir:           env("STATIC_DIR", "web"),
-		MigrationsDir:       env("MIGRATIONS_DIR", "migrations"),
-		VoteHashSecret:      hashSecret,
-		TelegramBotToken:    env("TELEGRAM_BOT_TOKEN", ""),
-		TelegramBotUsername: env("TELEGRAM_BOT_USERNAME", ""),
-		LogLevel:            parseLogLevel(env("LOG_LEVEL", "info")),
-		SMTPHost:            env("SMTP_HOST", ""),
-		SMTPPort:            env("SMTP_PORT", "587"),
-		SMTPUser:            env("SMTP_USER", ""),
-		SMTPPassword:        env("SMTP_PASSWORD", ""),
-		SMTPFrom:            env("SMTP_FROM", ""),
+		Addr:          env("APP_ADDR", ":8080"),
+		DatabaseURL:   databaseURL,
+		StaticDir:     env("STATIC_DIR", "web"),
+		MigrationsDir: env("MIGRATIONS_DIR", "migrations"),
+		VoteHashSecret: hashSecret,
+		LogLevel:      parseLogLevel(env("LOG_LEVEL", "info")),
+		SMTPHost:      env("SMTP_HOST", ""),
+		SMTPPort:      env("SMTP_PORT", "587"),
+		SMTPUser:      env("SMTP_USER", ""),
+		SMTPPassword:  env("SMTP_PASSWORD", ""),
+		SMTPFrom:      env("SMTP_FROM", ""),
 	}
 }
 

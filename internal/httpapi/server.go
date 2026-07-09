@@ -15,8 +15,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,39 +35,39 @@ const (
 	maxStoredShortLength = 256
 )
 
-var adminTelegramUsers = map[int64]struct{}{
+var adminUserIDs = map[int64]struct{}{
 	6725709823: {},
 	6357965364: {},
 	8415321014: {},
 }
 
+var adminEmails = map[string]struct{}{
+	"svechnikova29@sch57.ru": {},
+}
+
 type ServerConfig struct {
-	Addr                string
-	StaticDir           string
-	Store               *store.Store
-	Logger              *slog.Logger
-	HashSecret          string
-	TelegramBotToken    string
-	TelegramBotUsername string
-	SMTPHost            string
-	SMTPPort            string
-	SMTPUser            string
-	SMTPPassword        string
-	SMTPFrom            string
+	Addr         string
+	StaticDir    string
+	Store        *store.Store
+	Logger       *slog.Logger
+	HashSecret   string
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUser     string
+	SMTPPassword string
+	SMTPFrom     string
 }
 
 func NewServer(cfg ServerConfig) *http.Server {
 	api := &apiServer{
-		store:               cfg.Store,
-		logger:              cfg.Logger,
-		hashSecret:          cfg.HashSecret,
-		telegramBotToken:    cfg.TelegramBotToken,
-		telegramBotUsername: cfg.TelegramBotUsername,
-		smtpHost:            cfg.SMTPHost,
-		smtpPort:            cfg.SMTPPort,
-		smtpUser:            cfg.SMTPUser,
-		smtpPassword:        cfg.SMTPPassword,
-		smtpFrom:            cfg.SMTPFrom,
+		store:        cfg.Store,
+		logger:       cfg.Logger,
+		hashSecret:   cfg.HashSecret,
+		smtpHost:     cfg.SMTPHost,
+		smtpPort:     cfg.SMTPPort,
+		smtpUser:     cfg.SMTPUser,
+		smtpPassword: cfg.SMTPPassword,
+		smtpFrom:     cfg.SMTPFrom,
 	}
 	limiter := newRateLimiter(120, time.Minute)
 
@@ -99,9 +97,7 @@ func NewServer(cfg ServerConfig) *http.Server {
 	mux.HandleFunc("DELETE /api/v1/quizzes/{id}", api.deleteQuiz)
 
 	mux.HandleFunc("GET /api/v1/auth/me", api.authMe)
-	mux.HandleFunc("GET /api/v1/auth/telegram/config", api.telegramConfig)
-	mux.HandleFunc("POST /api/v1/auth/telegram", api.telegramAuth)
-	// Email auth (endpoints exist; in this repo snapshot logic may be disabled)
+	// Email auth endpoints
 	mux.HandleFunc("POST /api/v1/auth/email/request", api.emailRequest)
 	mux.HandleFunc("POST /api/v1/auth/email/verify", api.emailVerify)
 	mux.HandleFunc("POST /api/v1/auth/logout", api.authLogout)
@@ -128,16 +124,14 @@ func NewServer(cfg ServerConfig) *http.Server {
 }
 
 type apiServer struct {
-	store               *store.Store
-	logger              *slog.Logger
-	hashSecret          string
-	telegramBotToken    string
-	telegramBotUsername string
-	smtpHost            string
-	smtpPort            string
-	smtpUser            string
-	smtpPassword        string
-	smtpFrom            string
+	store        *store.Store
+	logger       *slog.Logger
+	hashSecret   string
+	smtpHost     string
+	smtpPort     string
+	smtpUser     string
+	smtpPassword string
+	smtpFrom     string
 }
 
 func (s *apiServer) health(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +166,7 @@ func (s *apiServer) createPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := s.sessionUserID(r)
 	if userID == 0 {
-		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите через Telegram, чтобы создать опрос.")
+		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите, чтобы создать опрос.")
 		return
 	}
 	input, err := req.toInput(userID, userID, keyedHash(s.hashSecret, "owner:"+ownerKey))
@@ -203,7 +197,7 @@ func (s *apiServer) getPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ownerKeyHash := s.ownerKeyHash(r)
-	visible, _, err := s.store.PollAccess(r.Context(), id, ownerKeyHash, s.sessionUserID(r), isAdminUser(s.sessionUserID(r)))
+	visible, _, err := s.store.PollAccess(r.Context(), id, ownerKeyHash, s.sessionUserID(r), s.isAdminUser(r.Context(), s.sessionUserID(r)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Опрос не найден.")
 		return
@@ -217,7 +211,7 @@ func (s *apiServer) getPoll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden", "Опрос доступен только по приватной ссылке.")
 		return
 	}
-	poll, err := s.store.GetPoll(r.Context(), id, s.sessionUserID(r), ownerKeyHash, isAdminUser(s.sessionUserID(r)))
+	poll, err := s.store.GetPoll(r.Context(), id, s.sessionUserID(r), ownerKeyHash, s.isAdminUser(r.Context(), s.sessionUserID(r)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Опрос не найден.")
 		return
@@ -236,7 +230,7 @@ func (s *apiServer) recordPollVisit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_id", "Некорректный ID.")
 		return
 	}
-	visible, _, err := s.store.PollAccess(r.Context(), id, s.ownerKeyHash(r), s.sessionUserID(r), isAdminUser(s.sessionUserID(r)))
+	visible, _, err := s.store.PollAccess(r.Context(), id, s.ownerKeyHash(r), s.sessionUserID(r), s.isAdminUser(r.Context(), s.sessionUserID(r)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Опрос не найден.")
 		return
@@ -257,7 +251,7 @@ func (s *apiServer) recordPollVisit(w http.ResponseWriter, r *http.Request) {
 func (s *apiServer) listMyPolls(w http.ResponseWriter, r *http.Request) {
 	userID := s.sessionUserID(r)
 	if userID == 0 {
-		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите через Telegram, чтобы открыть свои опросы.")
+		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите, чтобы открыть свои опросы.")
 		return
 	}
 	query, err := searchQuery(r)
@@ -277,7 +271,7 @@ func (s *apiServer) listMyPolls(w http.ResponseWriter, r *http.Request) {
 func (s *apiServer) listMyQuizzes(w http.ResponseWriter, r *http.Request) {
 	userID := s.sessionUserID(r)
 	if userID == 0 {
-		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите через Telegram, чтобы открыть свои викторины.")
+		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите, чтобы открыть свои викторины.")
 		return
 	}
 	query, err := searchQuery(r)
@@ -365,7 +359,7 @@ func (s *apiServer) pollStats(w http.ResponseWriter, r *http.Request) {
 	ownerKeyHash := s.ownerKeyHash(r)
 	userID := s.sessionUserID(r)
 
-	stats, err := s.store.PollStats(r.Context(), id, ownerKeyHash, userID, isAdminUser(userID))
+	stats, err := s.store.PollStats(r.Context(), id, ownerKeyHash, userID, s.isAdminUser(r.Context(), userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusForbidden, "forbidden", "Статистика доступна владельцу опроса.")
 		return
@@ -673,7 +667,7 @@ func (s *apiServer) createQuiz(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := s.sessionUserID(r)
 	if userID == 0 {
-		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите через Telegram, чтобы создать викторину.")
+		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите, чтобы создать викторину.")
 		return
 	}
 	input, err := req.toInput(userID, keyedHash(s.hashSecret, "owner:"+ownerKey))
@@ -697,13 +691,6 @@ func (s *apiServer) createQuiz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, created)
 }
 
-func (s *apiServer) telegramConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled":      s.telegramBotToken != "" && s.telegramBotUsername != "",
-		"bot_username": s.telegramBotUsername,
-	})
-}
-
 func (s *apiServer) authMe(w http.ResponseWriter, r *http.Request) {
 	userID := s.sessionUserID(r)
 	if userID == 0 {
@@ -716,99 +703,11 @@ func (s *apiServer) authMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		s.logger.Error("telegram user lookup failed", "error", err)
+		s.logger.Error("user lookup failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось загрузить пользователя.")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "user": user, "is_admin": isAdminUser(user.ID)})
-}
-
-func (s *apiServer) telegramAuth(w http.ResponseWriter, r *http.Request) {
-	if s.telegramBotToken == "" {
-		writeError(w, http.StatusServiceUnavailable, "telegram_not_configured", "Telegram авторизация не настроена.")
-		return
-	}
-	var req telegramAuthPayload
-	if err := decodeJSON(w, r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
-		return
-	}
-
-	// Build map[string]string for HMAC verification.
-	// id and auth_date are int64 → string via strconv.
-	// Optional fields (last_name, username, photo_url) are only included
-	// when present in the JSON — Telegram omits them from the hash if the
-	// user has no last name / username / photo.
-	payload := map[string]string{
-		"id":         strconv.FormatInt(req.ID, 10),
-		"auth_date":  strconv.FormatInt(req.AuthDate, 10),
-		"first_name": req.FirstName,
-		"hash":       req.Hash,
-	}
-	if req.LastName != nil {
-		payload["last_name"] = *req.LastName
-	}
-	if req.Username != nil {
-		payload["username"] = *req.Username
-	}
-	if req.PhotoURL != nil {
-		payload["photo_url"] = *req.PhotoURL
-	}
-
-	if !s.verifyTelegramLogin(payload, s.telegramBotToken) {
-		s.logger.Error("telegram auth: signature verification failed", "payload", fmt.Sprintf("%v", payload))
-		writeError(w, http.StatusUnauthorized, "invalid_telegram_auth", "Telegram подпись не прошла проверку.")
-		return
-	}
-	if req.ID <= 0 {
-		writeError(w, http.StatusBadRequest, "invalid_telegram_user", "Некорректный Telegram ID.")
-		return
-	}
-	user := store.TelegramUser{
-		ID:        req.ID,
-		FirstName: req.FirstName,
-		LastName:  derefStr(req.LastName),
-		Username:  derefStr(req.Username),
-		PhotoURL:  derefStr(req.PhotoURL),
-		AuthDate:  time.Unix(req.AuthDate, 0),
-	}
-	if err := s.store.UpsertTelegramUser(r.Context(), user); err != nil {
-		s.logger.Error("telegram user upsert failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось сохранить пользователя.")
-		return
-	}
-	_, err := s.createAuthSession(w, r, user)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "Не удалось создать сессию.")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":         user.ID,
-		"username":   user.Username,
-		"first_name": user.FirstName,
-		"photo_url":  user.PhotoURL,
-	})
-}
-
-func (s *apiServer) createAuthSession(w http.ResponseWriter, r *http.Request, user store.TelegramUser) (store.TelegramUser, error) {
-	token, err := randomHex(32)
-	if err != nil {
-		return user, errors.New("Не удалось создать сессию.")
-	}
-	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	if err := s.store.CreateSession(r.Context(), user.ID, keyedHash(s.hashSecret, "session:"+token), expiresAt); err != nil {
-		s.logger.Error("session create failed", "error", err)
-		return user, errors.New("Не удалось создать сессию.")
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    signVoterToken(s.hashSecret, token),
-		Path:     "/",
-		MaxAge:   int(time.Until(expiresAt).Seconds()),
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
-	return user, nil
+	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "user": user, "is_admin": s.isAdminUser(r.Context(), user.ID)})
 }
 
 func (s *apiServer) authLogout(w http.ResponseWriter, r *http.Request) {
@@ -831,7 +730,7 @@ func (s *apiServer) getQuiz(w http.ResponseWriter, r *http.Request) {
 	}
 	ownerKeyHash := s.ownerKeyHash(r)
 	userID := s.sessionUserID(r)
-	visible, _, err := s.store.QuizAccess(r.Context(), id, ownerKeyHash, userID, isAdminUser(userID))
+	visible, _, err := s.store.QuizAccess(r.Context(), id, ownerKeyHash, userID, s.isAdminUser(r.Context(), userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Викторина не найдена.")
 		return
@@ -845,7 +744,7 @@ func (s *apiServer) getQuiz(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden", "Викторина доступна только по приватной ссылке.")
 		return
 	}
-	quiz, err := s.store.GetQuiz(r.Context(), id, userID, ownerKeyHash, isAdminUser(userID))
+	quiz, err := s.store.GetQuiz(r.Context(), id, userID, ownerKeyHash, s.isAdminUser(r.Context(), userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "Викторина не найдена.")
 		return
@@ -866,7 +765,7 @@ func (s *apiServer) submitQuizAnswer(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := s.sessionUserID(r)
 	if userID == 0 {
-		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите через Telegram, чтобы пройти викторину.")
+		writeError(w, http.StatusUnauthorized, "auth_required", "Войдите, чтобы пройти викторину.")
 		return
 	}
 	var req submitQuizAnswerRequest
@@ -914,7 +813,7 @@ func (s *apiServer) quizStats(w http.ResponseWriter, r *http.Request) {
 	ownerKeyHash := s.ownerKeyHash(r)
 	userID := s.sessionUserID(r)
 
-	stats, err := s.store.QuizStats(r.Context(), id, ownerKeyHash, userID, isAdminUser(userID))
+	stats, err := s.store.QuizStats(r.Context(), id, ownerKeyHash, userID, s.isAdminUser(r.Context(), userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusForbidden, "forbidden", "Статистика доступна владельцу викторины.")
 		return
@@ -934,7 +833,7 @@ type sqlRequest struct {
 func (s *apiServer) adminOnly(next http.HandlerFunc, requireCSRF bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := s.sessionUserID(r)
-		if !isAdminUser(userID) {
+		if !s.isAdminUser(r.Context(), userID) {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "Доступ запрещен.")
 			return
 		}
@@ -948,7 +847,7 @@ func (s *apiServer) adminOnly(next http.HandlerFunc, requireCSRF bool) http.Hand
 
 func (s *apiServer) adminPage(staticDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !isAdminUser(s.sessionUserID(r)) {
+		if !s.isAdminUser(r.Context(), s.sessionUserID(r)) {
 			http.Redirect(w, r, "/index.php", http.StatusFound)
 			return
 		}
@@ -966,13 +865,13 @@ func (s *apiServer) ownerKeyHash(r *http.Request) string {
 
 func (s *apiServer) canManagePoll(r *http.Request, pollID string) bool {
 	userID := s.sessionUserID(r)
-	_, owner, err := s.store.PollAccess(r.Context(), pollID, s.ownerKeyHash(r), userID, isAdminUser(userID))
+	_, owner, err := s.store.PollAccess(r.Context(), pollID, s.ownerKeyHash(r), userID, s.isAdminUser(r.Context(), userID))
 	return err == nil && owner
 }
 
 func (s *apiServer) canManageQuiz(r *http.Request, quizID string) bool {
 	userID := s.sessionUserID(r)
-	_, owner, err := s.store.QuizAccess(r.Context(), quizID, s.ownerKeyHash(r), userID, isAdminUser(userID))
+	_, owner, err := s.store.QuizAccess(r.Context(), quizID, s.ownerKeyHash(r), userID, s.isAdminUser(r.Context(), userID))
 	return err == nil && owner
 }
 
@@ -987,7 +886,7 @@ func (s *apiServer) quizLinkURL(r *http.Request, quizID, slug string) string {
 
 func (s *apiServer) adminMe(w http.ResponseWriter, r *http.Request) {
 	userID := s.sessionUserID(r)
-	if !isAdminUser(userID) {
+	if !s.isAdminUser(r.Context(), userID) {
 		writeJSON(w, http.StatusOK, map[string]any{"authenticated": false})
 		return
 	}
@@ -1058,8 +957,15 @@ func (s *apiServer) adminSQL(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func isAdminUser(userID int64) bool {
-	_, ok := adminTelegramUsers[userID]
+func (s *apiServer) isAdminUser(ctx context.Context, userID int64) bool {
+	if _, ok := adminUserIDs[userID]; ok {
+		return true
+	}
+	user, err := s.store.TelegramUser(ctx, userID)
+	if err != nil {
+		return false
+	}
+	_, ok := adminEmails[user.Email]
 	return ok
 }
 
@@ -1095,7 +1001,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, value any) error {
 		return errors.New("Ожидается Content-Type application/json.")
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	// Don't use DisallowUnknownFields — Telegram embed widget may send extra fields
+	// Don't use DisallowUnknownFields — some clients may send extra fields
 	// that we should ignore rather than reject with 400.
 	if err := decoder.Decode(value); err != nil {
 		return errors.New("Некорректный JSON.")
@@ -1332,47 +1238,6 @@ func keyedHash(secret, value string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func (s *apiServer) verifyTelegramLogin(payload map[string]string, botToken string) bool {
-	hashValue := payload["hash"]
-	if hashValue == "" {
-		s.logger.Debug("telegram auth: missing hash")
-		return false
-	}
-
-	authUnix, err := strconv.ParseInt(payload["auth_date"], 10, 64)
-	if err != nil || time.Since(time.Unix(authUnix, 0)) > 24*time.Hour {
-		s.logger.Debug("telegram auth: invalid or expired auth_date", "auth_date", payload["auth_date"])
-		return false
-	}
-
-	// Build the signed string from all fields except 'hash', sorted by key name.
-	keys := make([]string, 0, len(payload)-1)
-	for k := range payload {
-		if k != "hash" {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		parts = append(parts, k+"="+payload[k])
-	}
-
-	signedString := strings.Join(parts, "\n")
-	// Telegram uses SHA256(bot_token) as the HMAC key, not the raw token.
-	// See: https://core.telegram.org/widgets/login#checking-authorization
-	botToken = strings.TrimSpace(botToken)
-	tokenHash := sha256.Sum256([]byte(botToken))
-
-	mac := hmac.New(sha256.New, tokenHash[:])
-	_, _ = mac.Write([]byte(signedString))
-	expected := hex.EncodeToString(mac.Sum(nil))
-
-	s.logger.Debug("telegram auth check", "expected_hash", expected, "received_hash", hashValue, "token_len", len(botToken))
-
-	return hmac.Equal([]byte(hashValue), []byte(expected))
-}
-
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
@@ -1388,7 +1253,7 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 
 func withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; media-src 'self' blob:; script-src 'self' https://telegram.org 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src https://oauth.telegram.org https://oauth.telegram.com https://telegram.org; connect-src 'self' https://oauth.telegram.org https://oauth.telegram.com https://telegram.org; img-src 'self' https://t.me https://telegram.org data:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; media-src 'self' blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
