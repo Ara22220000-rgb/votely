@@ -376,47 +376,8 @@ function initCreateForm(form) {
         if (e.target.closest('[data-remove]')) e.target.closest('[data-row]')?.remove();
     });
     
-    // Динамическое обновление текста переключателей
-    form.querySelectorAll('input[name="is_private"]').forEach((input) => {
-        input.addEventListener('change', () => {
-            const label = input.closest('.toggle-row')?.querySelector('.toggle-switch__label strong');
-            const small = input.closest('.toggle-row')?.querySelector('.toggle-switch__label small');
-            if (label && small) {
-                if (input.name === 'is_private') {
-                    if (type === 'quiz') {
-                        label.textContent = input.checked ? 'Приватная' : 'Публичная';
-                        small.textContent = input.checked ? 'Викторина доступна только по прямой ссылке' : 'Викторина видна всем в списке и при поиске';
-                    } else {
-                        label.textContent = input.checked ? 'Приватный' : 'Публичный';
-                        small.textContent = input.checked ? 'Опрос доступен только по прямой ссылке' : 'Опрос виден всем в списке и при поиске';
-                    }
-                }
-            }
-        });
-    });
-    
+    // Инициализация переключателей при загрузке
     form.querySelectorAll('input[name="allow_multiple"]').forEach((input) => {
-        input.addEventListener('change', () => {
-            const label = input.closest('.toggle-row')?.querySelector('.toggle-switch__label strong');
-            const small = input.closest('.toggle-row')?.querySelector('.toggle-switch__label small');
-            if (label && small) {
-                if (type === 'quiz') {
-                    label.textContent = input.checked ? 'Несколько ответов' : 'Один ответ';
-                    small.textContent = input.checked ? 'Можно выбрать несколько вариантов' : 'Можно выбрать только один вариант';
-                } else {
-                    label.textContent = input.checked ? 'Несколько вариантов' : 'Один вариант';
-                    small.textContent = input.checked ? 'Можно выбрать несколько ответов' : 'Можно выбрать только один ответ';
-                }
-            }
-            // Переключаем тип input для ответов викторины
-            if (type === 'quiz') {
-                toggleAnswerInputType(form, input.checked);
-            }
-        });
-    });
-    
-    // Инициализация текста переключателей при загрузке
-    form.querySelectorAll('input[name="is_private"], input[name="allow_multiple"]').forEach((input) => {
         const event = new Event('change');
         input.dispatchEvent(event);
     });
@@ -531,7 +492,7 @@ function collectPollPayload(form) {
         title: form.elements.title.value,
         description: form.elements.description.value,
         options: Array.from(form.querySelectorAll('[name="option"]')).map((input) => input.value),
-        visibility: form.querySelector('[data-poll-fields]:not([hidden]) [name="is_private"]')?.checked ? 'private' : 'public',
+        visibility: form.querySelector('[data-poll-fields]:not([hidden]) [name="is_public"]')?.checked ? 'public' : 'private',
         allow_multiple: form.querySelector('[data-poll-fields]:not([hidden]) [name="allow_multiple"]')?.checked || false
     };
 }
@@ -541,7 +502,7 @@ function collectQuizPayload(form) {
         title: form.elements.title.value,
         description: form.elements.description.value,
         question: form.elements.title.value,
-        visibility: form.querySelector('[data-quiz-fields]:not([hidden]) [name="is_private"]')?.checked ? 'private' : 'public',
+        visibility: form.querySelector('[data-quiz-fields]:not([hidden]) [name="is_public"]')?.checked ? 'public' : 'private',
         allow_multiple: form.querySelector('[data-quiz-fields]:not([hidden]) [name="allow_multiple"]')?.checked || false,
         answers: Array.from(form.querySelectorAll('.answer-row')).map((row) => ({
             text: row.querySelector('[name="answer"]').value,

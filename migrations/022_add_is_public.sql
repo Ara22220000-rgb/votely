@@ -1,0 +1,2 @@
+ALTER TABLE polls ADD COLUMN IF NOT EXISTS is_public boolean NOT NULL DEFAULT false;
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS is_public boolean NOT NULL DEFAULT false;
