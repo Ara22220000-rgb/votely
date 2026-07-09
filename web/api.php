@@ -70,6 +70,15 @@ switch (true) {
     case $method === "GET" && $path === "/api/v1/auth/me":
         authMe($pdo);
         break;
+    case $method === "POST" && $path === "/api/v1/auth/email/request":
+        emailRequestCode($pdo);
+        break;
+    case $method === "POST" && $path === "/api/v1/auth/email/verify":
+        emailVerifyCode($pdo);
+        break;
+    case $method === "POST" && $path === "/api/v1/auth/logout":
+        logout($pdo);
+        break;
     case $method === "GET" && $path === "/api/v1/auth/telegram/config":
         telegramConfig();
         break;
@@ -705,9 +714,121 @@ function authMe($pdo) {
         echo json_encode(["authenticated" => false]);
         return;
     }
-    $stmt = $pdo->prepare("SELECT id, username, first_name FROM telegram_users WHERE id = :id");
+    $stmt = $pdo->prepare("SELECT id, username, first_name, email, auth_method FROM telegram_users WHERE id = :id");
     $stmt->execute([":id" => $userId]);
-    echo json_encode(["authenticated" => true, "user" => $stmt->fetch()], JSON_UNESCAPED_UNICODE);
+    $user = $stmt->fetch();
+    if (!$user) {
+        echo json_encode(["authenticated" => false]);
+        return;
+    }
+    echo json_encode(["authenticated" => true, "user" => $user], JSON_UNESCAPED_UNICODE);
+}
+
+function emailRequestCode($pdo) {
+    global $body;
+    $email = trim(strtolower($body["email"] ?? ""));
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        jsonError(400, "bad_email", "Введите корректный email");
+    }
+    // Rate limit: max 1 code per 30 seconds per email
+    $stmt = $pdo->prepare("SELECT expires_at FROM email_auth_codes WHERE email = :email ORDER BY created_at DESC LIMIT 1");
+    $stmt->execute([":email" => $email]);
+    $last = $stmt->fetch();
+    if ($last && strtotime($last["expires_at"]) > time() + 330) {
+        jsonError(429, "rate_limited", "Код уже отправлен. Подождите 30 секунд.");
+    }
+    // Generate 6-digit code
+    $code = str_pad((string)random_int(0, 999999), 6, "0", STR_PAD_LEFT);
+    $codeHash = hash("sha256", "email-code:" . $code);
+    $expiresAt = time() + 360; // 6 minutes
+    // Delete old codes for this email, insert new one
+    $stmt = $pdo->prepare("DELETE FROM email_auth_codes WHERE email = :email");
+    $stmt->execute([":email" => $email]);
+    $stmt = $pdo->prepare("INSERT INTO email_auth_codes (email, code_hash, expires_at) VALUES (:email, :code_hash, to_timestamp(:exp))");
+    $stmt->execute([":email" => $email, ":code_hash" => $codeHash, ":exp" => $expiresAt]);
+    // Send email (in dev mode, return the code in response)
+    $subject = "Votely — код подтверждения";
+    $message = "Ваш код подтверждения: $code\n\nКод действителен 6 минут.";
+    $headers = "From: noreply@votely.local\r\nContent-Type: text/plain; charset=utf-8\r\n";
+    @mail($email, $subject, $message, $headers);
+    // Always return dev_code for local development
+    echo json_encode(["success" => true, "dev_code" => $code], JSON_UNESCAPED_UNICODE);
+}
+
+function emailVerifyCode($pdo) {
+    global $body;
+    $email = trim(strtolower($body["email"] ?? ""));
+    $code = trim($body["code"] ?? "");
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        jsonError(400, "bad_email", "Введите корректный email");
+    }
+    if (!preg_match('/^\d{6}$/', $code)) {
+        jsonError(400, "bad_code", "Код состоит из 6 цифр");
+    }
+    // Check code
+    $stmt = $pdo->prepare("SELECT code_hash, expires_at, attempts FROM email_auth_codes WHERE email = :email ORDER BY created_at DESC LIMIT 1");
+    $stmt->execute([":email" => $email]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        jsonError(400, "no_code", "Код не найден. Запросите новый.");
+    }
+    if ($row["attempts"] >= 5) {
+        jsonError(429, "too_many_attempts", "Слишком много попыток. Запросите новый код.");
+    }
+    if (time() > strtotime($row["expires_at"])) {
+        jsonError(400, "expired", "Код истёк. Запросите новый.");
+    }
+    $codeHash = hash("sha256", "email-code:" . $code);
+    if (!hash_equals($row["code_hash"], $codeHash)) {
+        // Increment attempts
+        $stmt = $pdo->prepare("UPDATE email_auth_codes SET attempts = attempts + 1 WHERE email = :email");
+        $stmt->execute([":email" => $email]);
+        jsonError(400, "wrong_code", "Неверный код");
+    }
+    // Code verified — create or find user
+    $stmt = $pdo->prepare("SELECT id FROM telegram_users WHERE email = :email AND auth_method = 'email'");
+    $stmt->execute([":email" => $email]);
+    $user = $stmt->fetch();
+    if ($user) {
+        $userId = (int)$user["id"];
+    } else {
+        // Create new email user with generated ID
+        $stmt = $pdo->prepare("INSERT INTO telegram_users (id, first_name, username, email, auth_method, auth_date) VALUES (nextval('email_user_id_seq'), :name, '', :email, 'email', NOW()) RETURNING id");
+        $name = explode("@", $email)[0];
+        $stmt->execute([":name" => $name, ":email" => $email]);
+        $userId = (int)$stmt->fetchColumn();
+    }
+    // Delete used code
+    $stmt = $pdo->prepare("DELETE FROM email_auth_codes WHERE email = :email");
+    $stmt->execute([":email" => $email]);
+    // Create session
+    $token = bin2hex(random_bytes(32));
+    $tokenHash = hash("sha256", "session-token:" . $token);
+    $expiresAt = time() + (30 * 24 * 60 * 60);
+    $stmt = $pdo->prepare("INSERT INTO user_sessions (user_id, token_hash, expires_at) VALUES (:uid, :token, to_timestamp(:exp))");
+    $stmt->execute([":uid" => $userId, ":token" => $tokenHash, ":exp" => $expiresAt]);
+    $sig = hash_hmac("sha256", "session:" . $token, getenv("HASH_SECRET") ?: "dev-secret");
+    setSecureCookie("votely_session", "$token.$sig", $expiresAt, true);
+    // Return user info
+    $stmt = $pdo->prepare("SELECT id, username, first_name, email FROM telegram_users WHERE id = :id");
+    $stmt->execute([":id" => $userId]);
+    $user = $stmt->fetch();
+    echo json_encode(["success" => true, "user" => $user], JSON_UNESCAPED_UNICODE);
+}
+
+function logout($pdo) {
+    $cookie = $_COOKIE["votely_session"] ?? "";
+    if ($cookie) {
+        $parts = explode(".", $cookie);
+        if (count($parts) === 2) {
+            $token = $parts[0];
+            $tokenHash = hash("sha256", "session-token:" . $token);
+            $stmt = $pdo->prepare("DELETE FROM user_sessions WHERE token_hash = :t");
+            $stmt->execute([":t" => $tokenHash]);
+        }
+    }
+    setSecureCookie("votely_session", "", time() - 3600, true);
+    echo json_encode(["success" => true], JSON_UNESCAPED_UNICODE);
 }
 
 function telegramConfig() {

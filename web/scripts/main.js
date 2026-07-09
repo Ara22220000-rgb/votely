@@ -107,34 +107,21 @@ function lastAuthAvatar() {
     return '';
 }
 
-function initTelegramAuthUI() {
-    if (document.body.dataset.telegramAuthDelegationBound === '1') return;
-    document.body.dataset.telegramAuthDelegationBound = '1';
-    console.log('[TelegramAuth] initTelegramAuthUI called');
+function initEmailAuthUI() {
+    if (document.body.dataset.emailAuthDelegationBound === '1') return;
+    document.body.dataset.emailAuthDelegationBound = '1';
+    console.log('[EmailAuth] initEmailAuthUI called');
 
     document.addEventListener('click', async (event) => {
         const btn = event.target.closest('[data-auth-action="login"]');
         if (!btn) return;
-        console.log('[TelegramAuth] Login button clicked');
+        console.log('[EmailAuth] Login button clicked');
         event.preventDefault();
         try {
-            console.log('[TelegramAuth] Fetching config...');
-            const config = await apiJSON('/api/v1/auth/telegram/config');
-            console.log('[TelegramAuth] Config response:', config);
-            if (!config.enabled) {
-                showToast('Telegram авторизация не включена');
-                console.error('[TelegramAuth] enabled=false');
-                return;
-            }
-            if (!config.bot_username) {
-                showToast('Telegram бот не настроен');
-                console.error('[TelegramAuth] bot_username отсутствует');
-                return;
-            }
-            console.log('[TelegramAuth] Opening modal with bot_username:', config.bot_username);
-            openTelegramAuthModal(config.bot_username);
+            console.log('[EmailAuth] Opening email auth modal...');
+            openEmailAuthModal();
         } catch (error) {
-            console.error('[TelegramAuth] Error fetching config:', error);
+            console.error('[EmailAuth] Error opening modal:', error);
             const msg = error.message === 'Failed to fetch' 
                 ? 'Сервер недоступен. Проверьте соединение.' 
                 : error.message;
@@ -144,7 +131,7 @@ function initTelegramAuthUI() {
 }
 
 // Включаем делегирование сразу, чтобы кнопка работала даже если renderAuthControls() не вызывался.
-initTelegramAuthUI();
+initEmailAuthUI();
 
 function initLogoutUI() {
     document.querySelectorAll('[data-auth-logout]').forEach((button) => {
@@ -160,13 +147,6 @@ function initLogoutUI() {
             showToast('Вы вышли', 'success');
         });
     });
-}
-
-function frameCoords() {
-    const iframe = document.querySelector('iframe[id^="telegram-login-"]');
-    if (!iframe) return { x: 0, y: 0 };
-    const rect = iframe.getBoundingClientRect();
-    return { x: rect.left, y: rect.top };
 }
 
 function renderAuthControls() {
@@ -204,7 +184,7 @@ function renderAuthControls() {
             });
         });
         initLogoutUI();
-        initTelegramAuthUI();
+        initEmailAuthUI();
     });
 }
 
@@ -215,34 +195,40 @@ function initAuthGuards() {
         const state = await authReady;
         if (!state.authenticated) {
             event.preventDefault();
-            showToast('Войдите через Telegram, чтобы создать опрос.');
-            openLoginFromConfig();
+            showToast('Войдите, чтобы создать опрос.');
+            openEmailAuthModal();
         }
     });
 }
 
-async function openLoginFromConfig() {
-    const config = await apiJSON('/api/v1/auth/telegram/config');
-    if (!config.enabled || !config.bot_username) {
-        showToast('Telegram OAuth не настроен');
-        return;
-    }
-    openTelegramAuthModal(config.bot_username);
-}
-    
-function openTelegramAuthModal(botUsername) {
-    console.log('[TelegramAuth] openTelegramAuthModal called with botUsername:', botUsername);
+function openEmailAuthModal() {
+    console.log('[EmailAuth] openEmailAuthModal called');
     document.querySelector('[data-auth-modal]')?.remove();
     const modal = document.createElement('div');
     modal.className = 'auth-modal';
     modal.dataset.authModal = '';
     modal.innerHTML = `
-        <div class="auth-modal__panel" role="dialog" aria-modal="true" aria-labelledby="telegram-auth-title">
+        <div class="auth-modal__panel" role="dialog" aria-modal="true" aria-labelledby="email-auth-title">
             <button class="auth-modal__close" type="button" aria-label="Закрыть">×</button>
-            <h2 id="telegram-auth-title">Войти через Telegram</h2>
-            <p>Подтвердите вход в окне Telegram.</p>
-            <p class="auth-modal__status" data-auth-widget-status>Загружаем Telegram...</p>
-            <div class="auth-modal__widget" data-telegram-widget></div>
+            <h2 id="email-auth-title">Вход по почте</h2>
+            <div class="auth-modal__body">
+                <div class="auth-step" data-auth-step="email">
+                    <p class="auth-modal__hint">Введите email — мы отправим код подтверждения.</p>
+                    <form class="auth-form" data-email-form>
+                        <input class="auth-form__input" type="email" name="email" placeholder="you@example.com" autocomplete="email" required>
+                        <button class="auth-form__btn primary-button" type="submit">Отправить код</button>
+                    </form>
+                </div>
+                <div class="auth-step" data-auth-step="code" hidden>
+                    <p class="auth-modal__hint">Код подтверждения отправлен на <strong data-auth-email></strong>.</p>
+                    <form class="auth-form" data-code-form>
+                        <input class="auth-form__input auth-form__input--code" type="text" name="code" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required>
+                        <button class="auth-form__btn primary-button" type="submit">Войти</button>
+                    </form>
+                    <button class="auth-form__link" type="button" data-auth-back>← Изменить email</button>
+                </div>
+            </div>
+            <p class="auth-modal__status" data-auth-status></p>
         </div>
     `;
     modal.querySelector('.auth-modal__close').addEventListener('click', () => modal.remove());
@@ -250,211 +236,101 @@ function openTelegramAuthModal(botUsername) {
         if (event.target === modal) modal.remove();
     });
     document.body.append(modal);
-    console.log('[TelegramAuth] Modal created and appended');
+    console.log('[EmailAuth] Modal created and appended');
 
-    window.onTelegramAuth = async (authData) => {
-        console.log('[TelegramAuth] onTelegramAuth called with:', authData);
-        if (!authData || !authData.hash) {
-            console.error('[TelegramAuth] onTelegramAuth: missing hash');
-            showToast('Не удалось получить данные Telegram', 'error');
+    const statusEl = modal.querySelector('[data-auth-status]');
+    const emailStep = modal.querySelector('[data-auth-step="email"]');
+    const codeStep = modal.querySelector('[data-auth-step="code"]');
+    const emailDisplay = modal.querySelector('[data-auth-email]');
+    const emailInput = modal.querySelector('[data-email-form] input[name="email"]');
+    const codeInput = modal.querySelector('[data-code-form] input[name="code"]');
+    let currentEmail = '';
+
+    // Focus email input
+    emailInput?.focus();
+
+    // Step 1: request code
+    modal.querySelector('[data-email-form]').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = emailInput.value.trim();
+        if (!email) return;
+        const btn = modal.querySelector('[data-email-form] .auth-form__btn');
+        btn.disabled = true;
+        btn.textContent = 'Отправка...';
+        statusEl.textContent = '';
+        statusEl.classList.remove('is-error');
+        try {
+            const result = await apiJSON('/api/v1/auth/email/request', {
+                method: 'POST',
+                body: JSON.stringify({ email })
+            });
+            currentEmail = email;
+            emailDisplay.textContent = email;
+            emailStep.hidden = true;
+            codeStep.hidden = false;
+            codeInput.value = '';
+            codeInput.focus();
+            // Dev mode: show code in toast
+            if (result.dev_code) {
+                showToast('Код (dev): ' + result.dev_code, 'success');
+            }
+        } catch (error) {
+            statusEl.textContent = error.message;
+            statusEl.classList.add('is-error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Отправить код';
+        }
+    });
+
+    // Step 2: verify code
+    modal.querySelector('[data-code-form]').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const code = codeInput.value.trim();
+        if (!/^\d{6}$/.test(code)) {
+            statusEl.textContent = 'Код состоит из 6 цифр';
+            statusEl.classList.add('is-error');
             return;
         }
+        const btn = modal.querySelector('[data-code-form] .auth-form__btn');
+        btn.disabled = true;
+        btn.textContent = 'Проверка...';
+        statusEl.textContent = '';
+        statusEl.classList.remove('is-error');
         try {
-            console.log('[TelegramAuth] Sending POST to /api/v1/auth/telegram...');
-            const payload = {
-                id: authData.id,
-                first_name: authData.first_name,
-                auth_date: authData.auth_date,
-                hash: authData.hash
-            };
-            if (authData.last_name) payload.last_name = authData.last_name;
-            if (authData.username) payload.username = authData.username;
-            if (authData.photo_url) payload.photo_url = authData.photo_url;
-            const savedUser = await apiJSON('/api/v1/auth/telegram', {
+            const savedUser = await apiJSON('/api/v1/auth/email/verify', {
                 method: 'POST',
-                body: JSON.stringify(payload)
+                body: JSON.stringify({ email: currentEmail, code })
             });
-            console.log('[TelegramAuth] API response:', savedUser);
-            persistLastAuthUser(savedUser);
+            console.log('[EmailAuth] Verify response:', savedUser);
+            persistLastAuthUser(savedUser.user || savedUser);
             modal.remove();
-            authState = { authenticated: true, user: savedUser, isAdmin: false };
+            authState = { authenticated: true, user: savedUser.user || savedUser, isAdmin: false };
             authReady = Promise.resolve(authState);
             renderAuthControls();
             showToast('Вход выполнен', 'success');
         } catch (error) {
-            console.error('[TelegramAuth] API error:', error);
-            showToast(error.message, 'error');
+            statusEl.textContent = error.message;
+            statusEl.classList.add('is-error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Войти';
         }
-    };
+    });
 
-    renderTelegramLoginFrame(modal, botUsername);
-    console.log('[TelegramAuth] renderTelegramLoginFrame called');
-}
+    // Back to email step
+    modal.querySelector('[data-auth-back]').addEventListener('click', () => {
+        codeStep.hidden = true;
+        emailStep.hidden = false;
+        emailInput.focus();
+        statusEl.textContent = '';
+        statusEl.classList.remove('is-error');
+    });
 
-function renderTelegramLoginFrame(modal, botUsername) {
-    console.log('[TelegramAuth] renderTelegramLoginFrame called with botUsername:', botUsername);
-
-    const widget = modal.querySelector('[data-telegram-widget]');
-    const status = modal.querySelector('[data-auth-widget-status]');
-
-    if (!widget) {
-        console.error('[TelegramAuth] widget container not found in modal');
-        if (status) {
-            status.textContent = 'Ошибка: не найден контейнер виджета Telegram. Обновите страницу.';
-            status.classList.add('is-error');
-        }
-        return;
-    }
-
-    if (!status) {
-        console.error('[TelegramAuth] status element not found in modal');
-        return;
-    }
-
-    console.log('[TelegramAuth] widget and status found, creating iframe');
-    const origin = window.location.origin || `${window.location.protocol}//${window.location.hostname}`;
-    const iframe = document.createElement('iframe');
-    const frameURL = new URL(`https://oauth.telegram.org/embed/${encodeURIComponent(botUsername)}`);
-    frameURL.searchParams.set('origin', origin);
-    frameURL.searchParams.set('return_to', window.location.href);
-    frameURL.searchParams.set('size', 'large');
-    frameURL.searchParams.set('userpic', 'false');
-    frameURL.searchParams.set('request_access', 'write');
-
-    iframe.id = 'telegram-login-' + botUsername.replace(/[^a-z0-9_]/gi, '-');
-    iframe.src = frameURL.toString();
-    iframe.width = '238';
-    iframe.height = '40';
-    iframe.setAttribute('frameborder', '0');
-    iframe.setAttribute('scrolling', 'no');
-    iframe.style.overflow = 'hidden';
-    iframe.style.colorScheme = 'light dark';
-    iframe.style.border = 'none';
-    iframe.style.background = 'transparent';
-
-    function postToTelegram(event, data = {}) {
-        iframe.contentWindow?.postMessage(JSON.stringify({ event, frame: iframe.id, ...data }), 'https://oauth.telegram.org');
-    }
-
-    let resolved = false;
-
-    function handleTelegramMessage(event) {
-        const isTelegramOrigin = event.origin === 'https://oauth.telegram.org' ||
-            event.origin === 'https://oauth.telegram.com' ||
-            event.origin === 'https://telegram.org';
-        if (!isTelegramOrigin) return;
-        console.log('[TelegramAuth] Message received from origin:', event.origin, 'source:', event.source === iframe.contentWindow);
-        if (resolved) return;
-
-        let data = {};
-        try {
-            data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-        } catch (e) {
-            console.log('[TelegramAuth] Raw event.data:', event.data);
-            return;
-        }
-        console.log('[TelegramAuth] Parsed Telegram event:', data);
-
-        if (data.event === 'resize') {
-            if (data.height) iframe.style.height = data.height + 'px';
-            if (data.width) iframe.style.width = data.width + 'px';
-        } else if (data.event === 'ready') {
-            status.textContent = 'Загрузка виджета...';
-            status.classList.remove('is-error');
-        } else if (data.event === 'get_coords') {
-            postToTelegram('callback', { _cb: data._cb, value: frameCoords() });
-        } else if (data.event === 'unauthorized') {
-            resolved = true;
-            status.textContent = 'Вы отменили вход в Telegram.';
-            status.classList.add('is-error');
-        } else if (data.event === 'auth_user') {
-            // Telegram embed widget v1 sends:
-            // { event: 'auth_user', auth_data: { id, first_name, last_name, username, photo_url, auth_date, hash } }
-            let authData = null;
-            if (data.auth_data && typeof data.auth_data === 'object') {
-                authData = { ...data.auth_data };
-                console.log('[TelegramAuth] auth_user: extracted from data.auth_data:', authData);
-            } else if (data.value && typeof data.value === 'object' && data.value.auth_data) {
-                authData = { ...data.value.auth_data };
-                console.log('[TelegramAuth] auth_user: extracted from data.value.auth_data:', authData);
-            } else {
-                console.log('[TelegramAuth] auth_user: data structure:', JSON.stringify(data, null, 2));
-            }
-
-            if (authData && authData.hash && authData.id) {
-                console.log('[TelegramAuth] auth_user: authData passed validation, resolving');
-                resolved = true;
-                window.removeEventListener('message', handleTelegramMessage);
-                window.onTelegramAuth(authData);
-            } else {
-                console.log('[TelegramAuth] auth_user: authData validation failed', { authData, hasHash: !!authData?.hash, hasId: !!authData?.id });
-                status.textContent = 'Некорректные данные от Telegram (нет hash или id). Проверьте консоль (F12).';
-                status.classList.add('is-error');
-                console.error('Telegram auth_user:', JSON.stringify(data, null, 2));
-            }
-        } else if (data.event === 'auth_result') {
-            // Telegram embed widget v2 sends:
-            // { event: 'auth_result', value: { auth_data: {...}, hash: '...' } }
-            // or { event: 'auth_result', value: { id: ..., hash: '...', ... } }
-            let authData = null;
-            if (data.value && typeof data.value === 'object') {
-                // Nested format: value.auth_data or value with fields directly
-                if (data.value.auth_data && typeof data.value.auth_data === 'object') {
-                    authData = { ...data.value.auth_data };
-                    // hash can be at value level or inside auth_data
-                    authData.hash = data.value.hash || data.value.auth_data.hash || '';
-                } else if (data.value.hash) {
-                    // Flat format inside value
-                    authData = { ...data.value };
-                }
-            } else if (data.auth_data && typeof data.auth_data === 'object') {
-                // Legacy format
-                authData = { ...data.auth_data };
-                authData.hash = data.hash || '';
-            }
-
-            if (authData && authData.hash && authData.id) {
-                resolved = true;
-                window.removeEventListener('message', handleTelegramMessage);
-                window.onTelegramAuth(authData);
-            } else {
-                status.textContent = 'Некорректные данные от Telegram (нет hash или id). Проверьте консоль (F12).';
-                status.classList.add('is-error');
-                console.error('Telegram auth_result:', JSON.stringify(data, null, 2));
-            }
-        }
-    }
-
-    window.addEventListener('message', handleTelegramMessage);
-
-
-    // Timeout: if no auth_result after 60s, show error
-    window.setTimeout(() => {
-        if (!resolved && modal.isConnected) {
-            status.textContent = 'Вход не подтверждён. Нажмите "Log in with Telegram" в окне Telegram.';
-            status.classList.remove('is-error');
-        }
-    }, 60000);
-
-    // Show error if iframe hasn't become ready after a delay.
-    // Don't use iframe.onload — it fires when the element is created,
-    // not when the remote content from oauth.telegram.org finishes loading.
-    window.setTimeout(() => {
-        if (!resolved && modal.isConnected && status.textContent.trim() === 'Загружаем Telegram...') {
-            status.textContent = 'Если кнопка Telegram не появилась, проверьте домен в BotFather и обновите страницу.';
-            status.classList.add('is-error');
-        }
-    }, 5000);
-
-    try {
-        console.log('[TelegramAuth] Inserting iframe into widget');
-        widget.replaceChildren(iframe);
-        console.log('[TelegramAuth] Iframe inserted successfully, src:', iframe.src);
-    } catch (err) {
-        console.error('[TelegramAuth] Failed to insert iframe:', err);
-        status.textContent = 'Ошибка вставки виджета: ' + err.message;
-        status.classList.add('is-error');
-    }
+    // Allow only digits in code input
+    codeInput?.addEventListener('input', () => {
+        codeInput.value = codeInput.value.replace(/\D/g, '').slice(0, 6);
+    });
 }
 
 function initCreateForm(form) {
@@ -559,8 +435,8 @@ function initCreateForm(form) {
         try {
             const state = await authReady;
             if (!state.authenticated) {
-                setStatus(status, 'Войдите через Telegram, чтобы создать.', 'error');
-                await openLoginFromConfig();
+                setStatus(status, 'Войдите, чтобы создать.', 'error');
+                openEmailAuthModal();
                 return;
             }
             const result = await apiJSON(type === 'quiz' ? '/api/v1/quizzes' : '/api/v1/polls', {
@@ -1437,7 +1313,7 @@ function renderQuizView(container, data) {
         try {
             const state = await authReady;
             if (!state.authenticated) {
-                await openLoginFromConfig();
+                openEmailAuthModal();
                 return;
             }
             const payload = allowMultiple
@@ -1707,7 +1583,7 @@ async function initAdminPanel(root) {
         }
         setStatus(status, 'Админ-панель доступна только разрешенным Telegram-аккаунтам.', 'error');
         const state = await authReady;
-        if (!state.authenticated) openLoginFromConfig();
+        if (!state.authenticated) openEmailAuthModal();
     }
 
     async function loadAdmin() {

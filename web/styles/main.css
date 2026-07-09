@@ -1321,6 +1321,83 @@ a {
     min-height: 46px;
 }
 
+.auth-modal__body {
+    display: grid;
+    gap: 16px;
+}
+
+.auth-modal__hint {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+}
+
+.auth-form {
+    display: grid;
+    gap: 12px;
+}
+
+.auth-form__input {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--field-border);
+    background: var(--field-bg);
+    color: var(--text);
+    font-size: 16px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 140ms ease;
+}
+
+.auth-form__input:focus {
+    border-color: var(--accent);
+}
+
+.auth-form__input::placeholder {
+    color: var(--subtle);
+}
+
+.auth-form__input--code {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 8px;
+}
+
+.auth-form__btn {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+    font-weight: 700;
+    border: 0;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: opacity 140ms ease;
+}
+
+.auth-form__btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.auth-form__link {
+    margin-top: 4px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font-size: 14px;
+    cursor: pointer;
+    text-align: center;
+}
+
+.auth-form__link:hover {
+    text-decoration: underline;
+}
+
 .cards-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
