@@ -132,8 +132,9 @@ body {
     width: auto;
     height: auto;
     transform: translate(-50%, -50%);
-    display: block;
+    display: none;
 }
+
 
 .hero-video-overlay {
     position: absolute;
@@ -141,6 +142,13 @@ body {
     background: linear-gradient(135deg, rgba(18, 18, 18, 0.75) 0%, rgba(18, 18, 18, 0.65) 100%);
     z-index: 1;
 }
+
+/* Video background is disabled; keep overlay styles only */
+.hero-video-container,
+.hero-video {
+    display: none !important;
+}
+
 
 html {
     font-size: clamp(14px, 0.9vw + 9px, 16px);
@@ -187,6 +195,8 @@ a {
     transition: background 200ms ease, backdrop-filter 200ms ease;
 }
 
+
+
 .hero-video-container {
     position: fixed;
     top: 0;
@@ -195,7 +205,10 @@ a {
     height: 100vh;
     z-index: 0;
     overflow: hidden;
+    display: none;
 }
+
+
 
 
 
