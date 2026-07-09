@@ -1133,12 +1133,13 @@ function renderPollView(container, data, id) {
     const selectedOptionID = data.selected_option_id || '';
     const hasAnswered = allowMultiple ? selectedOptionIDs.length > 0 : !!selectedOptionID;
     const totalVotes = options.reduce((sum, option) => sum + (option.votes || 0), 0);
-    options.forEach((option) => {
+    options.forEach((option, index) => {
         const label = document.createElement('label');
         label.className = 'vote-option';
         const isSelected = allowMultiple ? selectedOptionIDs.includes(option.id) : option.id === selectedOptionID;
         label.classList.toggle('is-user-selected', isSelected);
         const percent = totalVotes ? Math.round(((option.votes || 0) / totalVotes) * 100) : 0;
+        const color = chartColor(index);
         const inputType = allowMultiple ? 'checkbox' : 'radio';
         const inputName = allowMultiple ? 'opt[]' : 'opt';
         const inputChecked = isSelected ? 'checked' : '';
@@ -1151,7 +1152,7 @@ function renderPollView(container, data, id) {
                     <span class="vote-count">${isSelected ? 'Ваш выбор · ' : ''}${option.votes || 0} · ${percent}%</span>
                 </span>
                 <span class="vote-result-bar" aria-label="Заполнено ${percent}%">
-                    <span class="vote-result-bar__fill" style="--target:${percent}%"></span>
+                    <span class="vote-result-bar__fill" style="--target:${percent}%; --bar-color:${color}; --bar-color-neon:${color}80"></span>
                     <span class="vote-result-bar__label">${percent}%</span>
                 </span>
             </span>
@@ -1230,11 +1231,12 @@ function renderQuizView(container, data) {
         </div>
     `;
     const list = container.querySelector('.answer-list');
-    (data.answers || []).forEach((answer) => {
+    (data.answers || []).forEach((answer, index) => {
         const label = document.createElement('label');
         label.className = 'vote-option';
         const isSelected = answer.id === selectedAnswerID;
         label.classList.toggle('is-user-selected', isSelected);
+        const color = chartColor(index);
         const inputType = allowMultiple ? 'checkbox' : 'radio';
         const inputName = allowMultiple ? 'ans[]' : 'ans';
         label.innerHTML = `
@@ -1244,7 +1246,7 @@ function renderQuizView(container, data) {
                     <span class="vote-option__text">${escapeHtml(answer.text)}</span>
                     <span class="vote-count" hidden></span>
                 </span>
-                <span class="vote-result-bar"><span class="vote-result-bar__fill" style="--target:0%"></span><span class="vote-result-bar__label">0%</span></span>
+                <span class="vote-result-bar"><span class="vote-result-bar__fill" style="--target:0%; --bar-color:${color}; --bar-color-neon:${color}80"></span><span class="vote-result-bar__label">0%</span></span>
             </span>
         `;
         list.append(label);
@@ -1320,13 +1322,14 @@ function renderQuizResult(container, data, result) {
     
     // Обновляем варианты ответов
     list.replaceChildren();
-    (result.answers || []).forEach((answer) => {
+    (result.answers || []).forEach((answer, index) => {
         const label = document.createElement('div');
         const isSelected = answer.id === result.selected_answer_id;
         label.className = 'vote-option is-result';
         label.classList.toggle('is-correct', !!answer.is_correct);
         label.classList.toggle('is-error', isSelected && !answer.is_correct);
         label.classList.toggle('is-user-selected', isSelected);
+        const color = chartColor(index);
         label.innerHTML = `
             <span class="vote-option__marker"></span>
             <span class="vote-option__body">
@@ -1335,7 +1338,7 @@ function renderQuizResult(container, data, result) {
                     <span class="vote-count">${answer.attempts || 0} · ${answer.percent || 0}%</span>
                 </span>
                 <span class="vote-result-bar">
-                    <span class="vote-result-bar__fill" style="--target:${answer.percent || 0}%"></span>
+                    <span class="vote-result-bar__fill" style="--target:${answer.percent || 0}%; --bar-color:${color}; --bar-color-neon:${color}80"></span>
                     <span class="vote-result-bar__label">${answer.percent || 0}%</span>
                 </span>
             </span>
@@ -1498,7 +1501,21 @@ function polar(cx, cy, r, angle) {
 }
 
 function chartColor(index) {
-    return ['#5caf70', '#8d8d8f', '#d7d9dc', '#3a3b3d', '#92d2a2', '#bfc1c5'][index % 6];
+    const colors = [
+        '#10b981', // зелёный
+        '#3b82f6', // синий
+        '#f59e0b', // янтарный
+        '#ef4444', // красный
+        '#8b5cf6', // фиолетовый
+        '#ec4899', // розовый
+        '#06b6d4', // циан
+        '#f97316', // оранжевый
+        '#84cc16', // лайм
+        '#14b8a6', // тиловый
+        '#a855f7', // пурпурный
+        '#22d3ee'  // голубой неон
+    ];
+    return colors[index % colors.length];
 }
 
 function metric(label, value) {
